@@ -58,7 +58,7 @@ Each app and package needs:
 Do not install app-specific dependencies yet. Scaffold structure only.
 ```
 
-### Session 0.2 — shared config package
+### ✅ Session 0.2 — shared config package — DONE (commit 620eb6f)
 
 ```
 Implement @vault/config.
@@ -75,7 +75,7 @@ Update every tsconfig.json in the monorepo to extend the correct base.
 Run `pnpm tsc --noEmit` from root to verify zero errors on empty files.
 ```
 
-### Session 0.3 — CI pipeline
+### ✅ Session 0.3 — CI pipeline — DONE (commit a858149)
 
 ```
 Add GitHub Actions CI.
