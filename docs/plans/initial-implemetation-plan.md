@@ -178,7 +178,7 @@ Tests:
   - each encryptSecret call produces a different IV (verify randomness)
 ```
 
-### Session 1.3 — keypair operations (for team sharing)
+### ✅ Session 1.3 — keypair operations (for team sharing) — DONE (commit 112d993, 26/26 tests)
 
 ```
 Implement X25519 keypair operations in @vault/crypto.
