@@ -222,7 +222,7 @@ Tests:
   - ECDH is symmetric (shared secret is same from both directions)
 ```
 
-### Session 1.4 — encoding helpers
+### ✅ Session 1.4 — encoding helpers — DONE (commit 4e6404b, 26/26 tests)
 
 ```
 Add encoding utilities to @vault/crypto — needed for serialising binary to/from the DB and API.
