@@ -22,7 +22,7 @@ Keep sessions small: one concern per session, one PR per session.
 
 > Goal: empty but runnable repo. Every app boots. CI passes on an empty commit.
 
-### Session 0.1 — root scaffold
+### ✅ Session 0.1 — root scaffold — DONE (commit f50c499)
 
 ```
 Scaffold a Turborepo monorepo with pnpm workspaces.
