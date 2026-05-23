@@ -135,7 +135,7 @@ Add Vitest. Write tests:
   - deriveMasterKey produces different output for different salts
 ```
 
-### Session 1.2 — vault key operations
+### ✅ Session 1.2 — vault key operations — DONE (commit 633cc25, 19/19 tests)
 
 ```
 Implement high-level vault key operations in @vault/crypto.
