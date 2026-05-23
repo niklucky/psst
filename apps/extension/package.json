@@ -1,0 +1,17 @@
+{
+  "name": "@psst/extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "WXT browser extension (Chrome + Firefox)",
+  "scripts": {
+    "dev": "echo \"WXT not yet configured\"",
+    "build": "echo \"WXT not yet configured\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"No lint yet\"",
+    "test": "echo \"No tests yet\""
+  },
+  "devDependencies": {
+    "@psst/config": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}

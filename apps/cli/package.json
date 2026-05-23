@@ -1,0 +1,20 @@
+{
+  "name": "@psst/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript CLI tool for developers",
+  "bin": {
+    "psst": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format cjs --dts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"No lint yet\"",
+    "test": "echo \"No tests yet\""
+  },
+  "devDependencies": {
+    "@psst/config": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}

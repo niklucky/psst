@@ -1,0 +1,6 @@
+{
+  "name": "@psst/config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared TypeScript, ESLint, and Prettier configuration"
+}

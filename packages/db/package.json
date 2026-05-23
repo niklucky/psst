@@ -1,0 +1,17 @@
+{
+  "name": "@psst/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drizzle schema and database client",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"No tests yet\"",
+    "lint": "echo \"No lint yet\""
+  },
+  "devDependencies": {
+    "@psst/config": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}

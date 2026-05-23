@@ -1,0 +1,17 @@
+{
+  "name": "@psst/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "tRPC router definitions and shared API types",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"No tests yet\"",
+    "lint": "echo \"No lint yet\""
+  },
+  "devDependencies": {
+    "@psst/config": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}
