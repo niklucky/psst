@@ -99,7 +99,7 @@ Pipeline should pass green on the empty scaffold.
 > Goal: the entire key hierarchy implemented, tested, zero-knowledge correct.
 > This is the most important phase. Do not proceed to the database until this is solid.
 
-### Session 1.1 — primitives
+### ✅ Session 1.1 — primitives — DONE (commit 6add596, 13/13 tests)
 
 ```
 Implement @vault/crypto using @noble/ciphers and @noble/hashes.
