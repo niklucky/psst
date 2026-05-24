@@ -1,2 +1,3 @@
 // @psst/shared — Zod schemas, inferred types, and shared utilities
-export {};
+export * from './secrets';
+export * from './api';

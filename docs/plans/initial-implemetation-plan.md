@@ -356,7 +356,7 @@ Tables:
 Generate and run migration.
 ```
 
-### Session 2.4 — secrets schema
+### ✅ Session 2.4 — secrets schema — DONE (commit 5ccccd6)
 
 ```
 Define secrets, folders, and tags tables in @psst/db.
