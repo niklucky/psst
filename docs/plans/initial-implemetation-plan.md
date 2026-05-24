@@ -249,7 +249,7 @@ Run all existing tests. Zero failures required before proceeding.
 
 > Goal: complete Drizzle schema, migrations, seed script. No application logic yet.
 
-### Session 2.1 — Drizzle setup
+### ✅ Session 2.1 — Drizzle setup — DONE (commit 9ea88a2)
 
 ```
 Set up @psst/db package.
@@ -267,7 +267,7 @@ Use connection pooling (max: 10).
 Add a `db:generate` and `db:migrate` script to package.json.
 ```
 
-### Session 2.2 — users and auth schema
+### ✅ Session 2.2 — users and auth schema — DONE (commit c05aa87)
 
 ```
 Define users and auth tables in @psst/db using Drizzle.
@@ -308,7 +308,7 @@ Tables:
 Generate migration. Run it against a local Postgres instance to verify.
 ```
 
-### Session 2.3 — organisation and vault schema
+### ✅ Session 2.3 — organisation and vault schema — DONE (commit 1b349f8)
 
 ```
 Define org, vault, and membership tables in @psst/db.

@@ -15,6 +15,13 @@
       "when": 1779581974334,
       "tag": "0001_jazzy_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779582248566,
+      "tag": "0002_groovy_avengers",
+      "breakpoints": true
     }
   ]
 }
