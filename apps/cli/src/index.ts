@@ -24,7 +24,8 @@ const program = new Command();
 program
   .name('psst')
   .description('Zero-knowledge secrets management CLI')
-  .version('0.0.0');
+  .version('0.0.0')
+  .enablePositionalOptions();
 
 // Auth commands (top-level for discoverability)
 program.addCommand(makeLoginCommand());

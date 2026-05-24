@@ -1025,7 +1025,7 @@ On any CLI command: if keychain has sessionToken but no masterKey, prompt for pa
 and re-derive (don't ask for password on every command if keychain works).
 ```
 
-### Session 5.3 — env var commands
+### ✅ Session 5.3 — env var commands — DONE
 
 ```
 Implement env var commands — the primary CLI use case.
