@@ -1,4 +1,9 @@
-import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@tanstack/react-router';
+import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage } from './routes/login';
+import { RegisterPage } from './routes/register';
+import { VaultsPage } from './routes/vaults/index';
+import { VaultDetailPage } from './routes/vaults/$vaultId';
 
 // ---- Root layout ----
 const rootRoute = createRootRoute({
@@ -9,54 +14,50 @@ const rootRoute = createRootRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  component: () => (
-    <div className="flex min-h-screen items-center justify-center">
-      <p className="text-gray-500">Login — implemented in Session 4.2</p>
-    </div>
-  ),
+  component: LoginPage,
 });
 
 const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/register',
-  component: () => (
-    <div className="flex min-h-screen items-center justify-center">
-      <p className="text-gray-500">Register — implemented in Session 4.2</p>
-    </div>
-  ),
+  component: RegisterPage,
 });
 
-// ---- Authenticated root ----
+// ---- Authenticated app layout ----
+// Auth guard lives inside AppLayout (redirects to /login when session is absent).
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: () => (
-    <div className="flex min-h-screen bg-gray-50">
-      <aside className="w-64 bg-white border-r border-gray-200 p-4">
-        <p className="font-semibold text-gray-900">Psst</p>
-      </aside>
-      <main className="flex-1 p-6">
-        <Outlet />
-      </main>
-    </div>
-  ),
+  component: AppLayout,
 });
 
+// / → redirect to /vaults
 const indexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/',
-  component: () => (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-900">Welcome to Psst</h1>
-      <p className="mt-2 text-gray-500">Vault list — implemented in Session 4.3</p>
-    </div>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: '/vaults' });
+  },
+});
+
+// /vaults — vault list page
+const vaultsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vaults',
+  component: VaultsPage,
+});
+
+// /vaults/$vaultId — vault detail (placeholder for Session 4.4)
+const vaultDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vaults/$vaultId',
+  component: VaultDetailPage,
 });
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
-  appRoute.addChildren([indexRoute]),
+  appRoute.addChildren([indexRoute, vaultsRoute, vaultDetailRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

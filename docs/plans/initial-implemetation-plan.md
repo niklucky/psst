@@ -700,7 +700,7 @@ Wire into main router.
 > Goal: full web UI. Auth, vault management, secret CRUD, sharing.
 > Build features in this order: auth → vault list → secret list → secret detail → sharing.
 
-### Session 4.1 — web app bootstrap
+### ✅ Session 4.1 — web app bootstrap — DONE (commit ca7272b)
 
 ```
 Bootstrap the web app (apps/web).
@@ -743,7 +743,7 @@ Add a KeyVaultContext:
 Dev script: vite dev --port 3000
 ```
 
-### Session 4.2 — register and login flows
+### ✅ Session 4.2 — register and login flows — DONE
 
 ```
 Implement register and login UI in apps/web.
@@ -775,7 +775,7 @@ Show clear error for wrong password (caught at unwrapVaultKey step).
 Never show a technical error — just "incorrect email or password".
 ```
 
-### Session 4.3 — vault list and creation
+### ✅ Session 4.3 — vault list and creation — DONE
 
 ```
 Implement vault list page and create vault modal.

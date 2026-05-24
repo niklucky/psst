@@ -38,6 +38,20 @@ async function requireOrgAccess(
 }
 
 export const organisationsRouter = router({
+  /** Lists all organisations the current user is a member of. */
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return db
+      .select({
+        id: organisations.id,
+        name: organisations.name,
+        slug: organisations.slug,
+        role: organisationMembers.role,
+      })
+      .from(organisationMembers)
+      .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
+      .where(eq(organisationMembers.userId, ctx.session.userId));
+  }),
+
   /** Returns an organisation and its members. */
   get: protectedProcedure
     .input(z.object({ orgId: z.string().uuid() }))

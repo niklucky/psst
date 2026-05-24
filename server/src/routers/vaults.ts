@@ -7,7 +7,7 @@ import {
   secrets,
 } from '@psst/db';
 import { TRPCError } from '@trpc/server';
-import { and, count, eq, max } from 'drizzle-orm';
+import { and, count, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import { protectedProcedure, router } from '../trpc';
 
@@ -32,7 +32,7 @@ async function requireVaultAccess(
 export const vaultsRouter = router({
   /**
    * Lists all vaults the current user is a member of,
-   * including their personal encrypted vault key.
+   * including their personal encrypted vault key and aggregate counts.
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
@@ -51,7 +51,31 @@ export const vaultsRouter = router({
       .innerJoin(vaults, eq(vaultMembers.vaultId, vaults.id))
       .where(eq(vaultMembers.userId, ctx.session.userId));
 
-    return rows;
+    if (rows.length === 0) return [];
+
+    const vaultIds = rows.map((r) => r.id);
+
+    const [memberCounts, secretCounts] = await Promise.all([
+      db
+        .select({ vaultId: vaultMembers.vaultId, total: count() })
+        .from(vaultMembers)
+        .where(inArray(vaultMembers.vaultId, vaultIds))
+        .groupBy(vaultMembers.vaultId),
+      db
+        .select({ vaultId: secrets.vaultId, total: count() })
+        .from(secrets)
+        .where(inArray(secrets.vaultId, vaultIds))
+        .groupBy(secrets.vaultId),
+    ]);
+
+    const memberCountMap = new Map(memberCounts.map((r) => [r.vaultId, r.total]));
+    const secretCountMap = new Map(secretCounts.map((r) => [r.vaultId, r.total]));
+
+    return rows.map((r) => ({
+      ...r,
+      memberCount: memberCountMap.get(r.id) ?? 0,
+      secretCount: secretCountMap.get(r.id) ?? 0,
+    }));
   }),
 
   /** Returns a single vault with member list and the caller's vault key. */
