@@ -1,5 +1,7 @@
 import { useParams } from '@tanstack/react-router';
 import { useState } from 'react';
+import { CreateSecretModal } from '../../components/secrets/CreateSecretModal';
+import { SecretDetailPanel } from '../../components/secrets/SecretDetailPanel';
 import { SecretList } from '../../components/secrets/SecretList';
 import type { TypeFilter } from '../../components/secrets/SecretList';
 import { VaultLeftPanel } from '../../components/vault/VaultLeftPanel';
@@ -10,7 +12,7 @@ export function VaultDetailPage() {
   const { vaultId } = useParams({ strict: false }) as { vaultId: string };
   const { session } = useKeyVault();
 
-  // ── Filter state (shared between both panels) ─────────────────────────
+  // ── Filter state ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
@@ -24,7 +26,11 @@ export function VaultDetailPage() {
       return next;
     });
 
-  // ── Vault header ──────────────────────────────────────────────────────
+  // ── Panel state ───────────────────────────────────────────────────────────
+  const [selectedSecretId, setSelectedSecretId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // ── Vault header ──────────────────────────────────────────────────────────
   const { data: vault, isLoading: vaultLoading } = trpc.vault.get.useQuery(
     { vaultId },
     { enabled: !!session && !!vaultId },
@@ -40,7 +46,7 @@ export function VaultDetailPage() {
           <div className="h-5 w-48 rounded bg-gray-100 animate-pulse" />
         ) : (
           <>
-            <span className="text-xl">🗄️</span>
+            <span className="text-xl shrink-0">🗄️</span>
             <h1 className="font-semibold text-gray-900">{vault?.name ?? 'Vault'}</h1>
             {vault?.description && (
               <span className="text-sm text-gray-400 truncate">{vault.description}</span>
@@ -49,8 +55,8 @@ export function VaultDetailPage() {
         )}
       </div>
 
-      {/* ── Two-panel body ── */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* ── Two-panel body (left sidebar + main content) ── */}
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Left panel: folder tree + tag filters */}
         <VaultLeftPanel
           vaultId={vaultId}
@@ -67,14 +73,33 @@ export function VaultDetailPage() {
           typeFilter={typeFilter}
           search={search}
           selectedTagIds={selectedTagIds}
+          selectedSecretId={selectedSecretId}
           onSearchChange={setSearch}
           onTypeFilterChange={setTypeFilter}
-          onSecretClick={(id) => {
-            // Session 4.5 will open the detail panel here.
-            console.log('Secret clicked:', id);
-          }}
+          onSecretClick={setSelectedSecretId}
+          onCreateClick={() => setShowCreateModal(true)}
         />
+
+        {/* Detail panel — slides in over the secret list from the right */}
+        {selectedSecretId && (
+          <div className="absolute inset-y-0 right-0 w-96 z-10 overflow-hidden flex flex-col">
+            <SecretDetailPanel
+              secretId={selectedSecretId}
+              vaultId={vaultId}
+              onClose={() => setSelectedSecretId(null)}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Create secret modal */}
+      {showCreateModal && (
+        <CreateSecretModal
+          vaultId={vaultId}
+          session={session}
+          onClose={() => setShowCreateModal(false)}
+        />
+      )}
     </div>
   );
 }

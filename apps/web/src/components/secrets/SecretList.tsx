@@ -64,8 +64,12 @@ interface Props {
   selectedTagIds: Set<string>;
   onSearchChange: (v: string) => void;
   onTypeFilterChange: (v: TypeFilter) => void;
-  /** Called when the user clicks a secret row (Session 4.5). */
+  /** Called when the user clicks a secret row. */
   onSecretClick?: (secretId: string) => void;
+  /** Called when the user clicks the "+" button. */
+  onCreateClick?: () => void;
+  /** ID of the currently selected secret (highlighted in the list). */
+  selectedSecretId?: string | null;
 }
 
 export function SecretList({
@@ -77,6 +81,8 @@ export function SecretList({
   onSearchChange,
   onTypeFilterChange,
   onSecretClick,
+  onCreateClick,
+  selectedSecretId,
 }: Props) {
   const { session } = useKeyVault();
   const debouncedSearch = useDebounce(search, 300);
@@ -112,18 +118,29 @@ export function SecretList({
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* ── Search bar + type tabs ── */}
       <div className="shrink-0 bg-white border-b border-gray-200 px-4 pt-3">
-        {/* Search */}
-        <div className="relative mb-3">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">
-            🔍
-          </span>
-          <input
-            type="search"
-            placeholder="Search secrets…"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-          />
+        {/* Search + add button */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">
+              🔍
+            </span>
+            <input
+              type="search"
+              placeholder="Search secrets…"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+          </div>
+          {onCreateClick && (
+            <button
+              onClick={onCreateClick}
+              title="New secret"
+              className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xl leading-none"
+            >
+              +
+            </button>
+          )}
         </div>
 
         {/* Type filter tabs */}
@@ -180,7 +197,11 @@ export function SecretList({
                 <li
                   key={secret.id}
                   onClick={() => onSecretClick?.(secret.id)}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                    selectedSecretId === secret.id
+                      ? 'bg-indigo-50'
+                      : 'hover:bg-gray-50'
+                  }`}
                 >
                   {/* Type icon */}
                   <span className="text-xl shrink-0" aria-hidden>

@@ -823,7 +823,7 @@ Click a secret → open detail panel (next session)
 Empty state per type: "No logins yet — add your first one"
 ```
 
-### Session 4.5 — secret detail and edit
+### ✅ Session 4.5 — secret detail and edit — DONE
 
 ```
 Implement secret detail panel and edit forms.
