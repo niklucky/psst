@@ -965,7 +965,7 @@ Items:
 
 > Goal: a CLI tool for developers to use env vars in local development and CI/CD.
 
-### Session 5.1 — CLI scaffold
+### ✅ Session 5.1 — CLI scaffold — DONE
 
 ```
 Scaffold the CLI app (apps/cli).

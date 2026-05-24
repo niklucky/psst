@@ -1,8 +1,9 @@
 {
-  "extends": "@psst/config/tsconfig.node.json",
+  "extends": "@psst/config/tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "target": "ES2022"
   },
   "include": ["src"]
 }
