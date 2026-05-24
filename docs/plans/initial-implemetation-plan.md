@@ -486,7 +486,7 @@ Add a GET /health endpoint (not tRPC) that returns { ok: true, db: "connected" }
 Dev script: tsx watch server/src/index.ts
 ```
 
-### Session 3.2 — auth router (register + login)
+### ✅ Session 3.2 — auth router (register + login) — DONE (commit 06f88bb)
 
 ```
 Implement auth tRPC router.
