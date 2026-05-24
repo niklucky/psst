@@ -664,7 +664,7 @@ File: server/src/routers/tags.ts
 Wire both into main router.
 ```
 
-### Session 3.6 — organisation router
+### ✅ Session 3.6 — organisation router — DONE (commit 1042fca)
 
 ```
 Implement organisation tRPC router.

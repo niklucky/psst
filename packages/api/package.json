@@ -10,6 +10,9 @@
     "test": "echo \"No tests yet\"",
     "lint": "echo \"No lint yet\""
   },
+  "dependencies": {
+    "@psst/server": "workspace:*"
+  },
   "devDependencies": {
     "@psst/config": "workspace:*",
     "typescript": "^5.8.3"
