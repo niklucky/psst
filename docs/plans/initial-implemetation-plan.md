@@ -544,7 +544,7 @@ Wire the auth router into the main tRPC router.
 Test with curl or a REST client — do not build frontend yet.
 ```
 
-### Session 3.3 — vault router
+### ✅ Session 3.3 — vault router — DONE (commit 1a4d6b2)
 
 ```
 Implement vault tRPC router.

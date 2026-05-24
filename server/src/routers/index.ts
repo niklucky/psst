@@ -1,5 +1,6 @@
 import { router } from '../trpc';
 import { authRouter } from './auth';
+import { secretsRouter } from './secrets';
 import { vaultsRouter } from './vaults';
 
 /**
@@ -8,6 +9,7 @@ import { vaultsRouter } from './vaults';
 export const appRouter = router({
   auth: authRouter,
   vault: vaultsRouter,
+  secret: secretsRouter,
 });
 
 export type AppRouter = typeof appRouter;
