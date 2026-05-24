@@ -30,7 +30,7 @@ export function VaultsPage() {
   if (!session) return null;
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className="p-6 max-w-5xl overflow-y-auto flex-1">
       {/* ── Page header ── */}
       <div className="flex items-center justify-between mb-6">
         <div>

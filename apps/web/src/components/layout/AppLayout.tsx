@@ -61,9 +61,9 @@ export function AppLayout() {
   if (!session) return null;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* ── Sidebar ── */}
-      <aside className="w-60 shrink-0 bg-white border-r border-gray-200 flex flex-col">
+      <aside className="w-60 shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         {/* Logo */}
         <div className="h-14 flex items-center px-4 border-b border-gray-100">
           <span className="text-lg font-bold text-gray-900">🔐 Psst</span>
@@ -126,7 +126,7 @@ export function AppLayout() {
       </aside>
 
       {/* ── Main content ── */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-hidden flex flex-col">
         <Outlet />
       </main>
 

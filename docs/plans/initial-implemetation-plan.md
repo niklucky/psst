@@ -800,7 +800,7 @@ Vault sidebar:
   Click to navigate to vault
 ```
 
-### Session 4.4 — secret list
+### ✅ Session 4.4 — secret list — DONE
 
 ```
 Implement the secret list view inside a vault.
