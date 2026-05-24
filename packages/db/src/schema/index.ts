@@ -2,3 +2,4 @@
 export * from './users';
 export * from './vaults';
 export * from './secrets';
+export * from './invitations';

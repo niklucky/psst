@@ -22,6 +22,13 @@
       "when": 1779582248566,
       "tag": "0002_groovy_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779585642348,
+      "tag": "0003_orange_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

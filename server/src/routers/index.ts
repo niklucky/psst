@@ -1,6 +1,7 @@
 import { router } from '../trpc';
 import { authRouter } from './auth';
 import { foldersRouter } from './folders';
+import { organisationsRouter } from './organisations';
 import { secretsRouter } from './secrets';
 import { tagsRouter } from './tags';
 import { vaultsRouter } from './vaults';
@@ -14,6 +15,7 @@ export const appRouter = router({
   secret: secretsRouter,
   folder: foldersRouter,
   tag: tagsRouter,
+  org: organisationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

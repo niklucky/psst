@@ -641,7 +641,7 @@ Procedures:
 Wire into main router. Export the tRPC AppRouter type from server — this is what clients import for type safety.
 ```
 
-### Session 3.5 — folders and tags routers
+### ✅ Session 3.5 — folders and tags routers — DONE (commit 2cfeeb6)
 
 ```
 Implement folder and tag tRPC routers.
