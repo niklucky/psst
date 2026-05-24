@@ -5,8 +5,10 @@
  */
 
 import fs from 'node:fs';
+import { deriveMasterKey, fromBase64, toBase64 } from '@psst/crypto';
 import { readCredentials, writeCredentials, clearCredentials, readConfig, writeConfig } from './config';
 import type { PsstCredentials } from './config';
+import { promptPassword } from './prompt';
 
 export { readCredentials, writeCredentials, clearCredentials };
 
@@ -43,6 +45,48 @@ export function requireSession(): PsstCredentials {
     process.exit(1);
   }
   return session;
+}
+
+/**
+ * Returns the master key bytes for the given session.
+ *
+ * If the session was created with CI env vars (PSST_MASTER_KEY) or normally (file),
+ * it just decodes from base64. If the stored masterKey is missing (e.g. manually
+ * removed), re-derives it from the user's password.
+ */
+export async function requireMasterKey(session: PsstCredentials): Promise<Uint8Array> {
+  if (session.masterKey) {
+    return fromBase64(session.masterKey);
+  }
+
+  // masterKey is missing — prompt to re-derive
+  console.error('Master key not found in session. Re-derivation required.');
+
+  if (!session.email) {
+    console.error('Cannot re-derive: email not in session. Please run `psst login` again.');
+    process.exit(1);
+  }
+
+  const password = await promptPassword('Master password: ');
+
+  // Import api client lazily to avoid circular deps at module load
+  const { getApiClient } = await import('./api');
+  const api = getApiClient();
+
+  const { argon2Salt: argon2SaltFull } = await api.auth.getSalt.query({ email: session.email });
+  const decoded = JSON.parse(
+    new TextDecoder().decode(fromBase64(argon2SaltFull)),
+  ) as { masterSalt: string };
+
+  const masterKey = deriveMasterKey(password, fromBase64(decoded.masterSalt));
+
+  // Persist the recovered masterKey
+  const creds = readCredentials();
+  if (creds) {
+    writeCredentials({ ...creds, masterKey: toBase64(masterKey) });
+  }
+
+  return masterKey;
 }
 
 /**

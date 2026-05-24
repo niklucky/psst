@@ -1,60 +1,17 @@
 /**
  * psst login   — authenticate and persist session to ~/.psst/credentials.json
  * psst logout  — clear the session
- * psst whoami  — print current user info
+ * psst whoami  — print current user info (email, orgs, vaults)
  */
 
 import { Command } from 'commander';
-import * as readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
 import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey, wrapVaultKey } from '@psst/crypto';
 import { getApiClient, resetApiClient } from '../lib/api';
 import { saveSession, destroySession, requireSession } from '../lib/auth';
 import { readConfig, writeConfig, getServerUrl } from '../lib/config';
+import { promptInput, promptPassword } from '../lib/prompt';
 
-// ── Helper: prompt securely ───────────────────────────────────────────────────
-
-async function prompt(question: string, mask = false): Promise<string> {
-  const rl = readline.createInterface({ input, output });
-
-  if (mask) {
-    // Hide input on TTY
-    if (process.stdin.isTTY) {
-      output.write(question);
-      await new Promise<void>((resolve) => {
-        process.stdin.setRawMode(true);
-        let value = '';
-        process.stdin.resume();
-        process.stdin.setEncoding('utf8');
-
-        const onData = (ch: string) => {
-          if (ch === '') process.exit(); // Ctrl-C
-          if (ch === '\r' || ch === '\n') {
-            process.stdin.setRawMode(false);
-            process.stdin.pause();
-            process.stdin.removeListener('data', onData);
-            output.write('\n');
-            // Store in a closure — we resolve via returning the value
-            resolve();
-            // Sneak the value back (hacky but works for simple cases)
-            (prompt as unknown as { _last: string })._last = value;
-          } else if (ch === '') {
-            value = value.slice(0, -1);
-          } else {
-            value += ch;
-          }
-        };
-        process.stdin.on('data', onData);
-      });
-      rl.close();
-      return (prompt as unknown as { _last: string })._last ?? '';
-    }
-  }
-
-  const answer = await rl.question(question);
-  rl.close();
-  return answer.trim();
-}
+const DEFAULT_SERVER_URL = 'http://localhost:3001';
 
 // ── Helper: parse combined salt field ────────────────────────────────────────
 
@@ -77,49 +34,54 @@ function parseSaltField(argon2SaltFull: string): {
 export function makeLoginCommand(): Command {
   return new Command('login')
     .description('Authenticate with the Psst server and save session locally')
-    .option('--server <url>', 'Override server URL')
+    .option('--server <url>', 'Override server URL for this session')
     .action(async (options: { server?: string }) => {
       try {
-        // Allow server URL override
+        // ── 1. Resolve server URL ─────────────────────────────────────────────
         if (options.server) {
+          // Explicit flag always wins — save it
           const config = readConfig();
           writeConfig({ ...config, serverUrl: options.server });
+        } else {
+          // Prompt interactively if still pointing at localhost (unconfigured)
+          const config = readConfig();
+          if (!config.serverUrl || config.serverUrl === DEFAULT_SERVER_URL) {
+            const input = await promptInput(
+              `Server URL [${DEFAULT_SERVER_URL}]: `,
+            );
+            const url = input.trim() || DEFAULT_SERVER_URL;
+            if (url !== DEFAULT_SERVER_URL) {
+              writeConfig({ ...config, serverUrl: url });
+            }
+          }
         }
 
         const serverUrl = getServerUrl();
         console.log(`Connecting to ${serverUrl}`);
 
-        const email = await prompt('Email: ');
-        const password = await prompt('Master password: ', true);
+        // ── 2. Collect credentials ────────────────────────────────────────────
+        const email = await promptInput('Email: ');
+        const password = await promptPassword('Master password: ');
 
         const api = getApiClient();
 
-        // 1. Fetch argon2 salt
+        // ── 3. Fetch argon2 salt ──────────────────────────────────────────────
         process.stdout.write('Deriving keys… ');
         const { argon2Salt: argon2SaltFull } = await api.auth.getSalt.query({ email });
 
-        // 2. Parse and derive master key
+        // ── 4. Derive master key + auth hash ──────────────────────────────────
         const { masterSalt, authSalt } = parseSaltField(argon2SaltFull);
         const masterKey = deriveMasterKey(password, masterSalt);
-
-        // 3. Compute auth hash
         const authKey = deriveMasterKey(`auth:${password}`, authSalt);
         const authHash = toBase64(authKey);
-
         process.stdout.write('done\n');
+
+        // ── 5. Authenticate ───────────────────────────────────────────────────
         process.stdout.write('Authenticating… ');
-
-        // 4. Login — server verifies authHash, returns encrypted blobs
         const result = await api.auth.login.mutate({ email, authHash });
-
         process.stdout.write('done\n');
 
-        // 5. Unwrap + re-wrap all active vault keys with master key
-        // result.encryptedVaultKey is for the default vault; we store all of them
-        // by fetching the vault list after login
-        const vaultKeyWrapped: Record<string, { encryptedVaultKey: string; vaultKeyIv: string }> = {};
-
-        // Store session token first, then fetch all vaults
+        // ── 6. Save minimal session so next API calls are authenticated ───────
         saveSession({
           sessionToken: result.sessionToken,
           masterKey: toBase64(masterKey),
@@ -131,12 +93,15 @@ export function makeLoginCommand(): Command {
           userId: result.userId,
         });
 
-        // Reset API client to pick up the new session token
+        // Reset API client so it picks up the new session token from credentials
         resetApiClient();
         const authedApi = getApiClient();
 
-        // 6. Fetch all active vault memberships and unwrap/re-wrap each vault key
+        // ── 7. Fetch all active vault memberships, cache decrypted vault keys ─
+        process.stdout.write('Loading vaults… ');
         const vaults = await authedApi.vault.list.query();
+        const vaultKeyCache: Record<string, { encryptedVaultKey: string; vaultKeyIv: string }> = {};
+
         for (const vault of vaults) {
           try {
             const vaultKey = unwrapVaultKey(
@@ -145,32 +110,39 @@ export function makeLoginCommand(): Command {
               fromBase64(vault.vaultKeyIv),
             );
             const { encryptedVaultKey: rewrapped, iv } = wrapVaultKey(vaultKey, masterKey);
-            vaultKeyWrapped[vault.id] = {
+            vaultKeyCache[vault.id] = {
               encryptedVaultKey: toBase64(rewrapped),
               vaultKeyIv: toBase64(iv),
             };
           } catch {
-            // Skip vaults we can't unwrap — shouldn't happen for active memberships
+            // Skip vaults whose keys can't be unwrapped (shouldn't happen on active memberships)
           }
         }
+        process.stdout.write('done\n');
 
-        // 7. Persist full credentials
+        // ── 8. Persist complete session ───────────────────────────────────────
         saveSession({
           sessionToken: result.sessionToken,
           masterKey: toBase64(masterKey),
           encryptedPrivateKey: result.encryptedPrivateKey,
           privateKeyIv: result.privateKeyIv,
           publicKey: result.publicKey,
-          vaultKeys: vaultKeyWrapped,
+          vaultKeys: vaultKeyCache,
           email,
           userId: result.userId,
         });
 
         console.log(`\nLogged in as ${email}`);
-        console.log(`Session saved to ~/.psst/credentials.json`);
+        if (vaults.length > 0) {
+          console.log(`${vaults.length} vault${vaults.length !== 1 ? 's' : ''} loaded.`);
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`Login failed: ${message}`);
+        if (message === 'Interrupted') {
+          console.log('\nCancelled.');
+          process.exit(0);
+        }
+        console.error(`\nLogin failed: ${message}`);
         process.exit(1);
       }
     });
@@ -198,19 +170,45 @@ export function makeLogoutCommand(): Command {
 
 export function makeWhoamiCommand(): Command {
   return new Command('whoami')
-    .description('Print current user info')
+    .description('Print current user info (email, organisations, vaults)')
     .action(async () => {
       const session = requireSession();
+      const api = getApiClient();
+
       try {
-        const api = getApiClient();
-        const me = await api.auth.me.query();
+        // Fetch user info + org/vault lists in parallel
+        const [me, orgs, vaults] = await Promise.all([
+          api.auth.me.query(),
+          api.org.list.query(),
+          api.vault.list.query(),
+        ]);
+
         console.log(`Email:   ${me.email}`);
         console.log(`User ID: ${me.id}`);
+
+        if (orgs.length > 0) {
+          console.log('\nOrganisations:');
+          for (const o of orgs) {
+            console.log(`  ${o.name} (${o.slug}) — ${o.role}`);
+          }
+        } else {
+          console.log('\nNo organisations.');
+        }
+
+        if (vaults.length > 0) {
+          console.log('\nVaults:');
+          for (const v of vaults) {
+            const secretLabel = `${v.secretCount} secret${v.secretCount !== 1 ? 's' : ''}`;
+            console.log(`  ${v.name.padEnd(36)}  ${v.role.padEnd(8)}  [${secretLabel}]`);
+          }
+        } else {
+          console.log('\nNo vaults.');
+        }
       } catch {
-        // Fallback to local credentials
+        // Fallback to local credentials when server is unreachable
         console.log(`Email:   ${session.email || '(unknown)'}`);
         console.log(`User ID: ${session.userId || '(unknown)'}`);
-        console.log(`(Could not reach server — showing cached info)`);
+        console.log(`\n(Could not reach server — showing cached info)`);
       }
     });
 }

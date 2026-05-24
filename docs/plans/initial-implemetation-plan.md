@@ -997,7 +997,7 @@ Config file (~/.vault/config.json):
   { "serverUrl": "https://...", "defaultOrgId": "...", "defaultVaultId": "..." }
 ```
 
-### Session 5.2 — CLI auth commands
+### ✅ Session 5.2 — CLI auth commands — DONE
 
 ```
 Implement vault login and vault logout.
