@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.3",
+    "@noble/hashes": "^2.2.0",
     "@psst/crypto": "workspace:*",
     "@psst/db": "workspace:*",
     "@psst/shared": "workspace:*",

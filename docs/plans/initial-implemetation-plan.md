@@ -460,7 +460,7 @@ All schemas should be strict (no extra keys). Infer and export TypeScript types 
 
 > Goal: running API server with auth endpoints. No frontend yet.
 
-### Session 3.1 — server bootstrap
+### ✅ Session 3.1 — server bootstrap — DONE (commit 08e0a56)
 
 ```
 Bootstrap the server package.

@@ -1,8 +1,11 @@
 import { router } from '../trpc';
+import { authRouter } from './auth';
 
 /**
- * Root tRPC router — sub-routers are added in Sessions 3.2–3.6.
+ * Root tRPC router — sub-routers added as Phase 3 progresses.
  */
-export const appRouter = router({});
+export const appRouter = router({
+  auth: authRouter,
+});
 
 export type AppRouter = typeof appRouter;
