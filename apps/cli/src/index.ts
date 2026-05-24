@@ -5,9 +5,13 @@
  *   psst login                 — authenticate
  *   psst logout                — clear session
  *   psst whoami                — show current user
- *   psst secret list           — list secrets
- *   psst secret get <id>       — decrypt and print a secret
- *   psst secret search <term>  — search secrets by name
+ *   psst vault list            — list vaults
+ *   psst vault use <name>      — set default vault
+ *   psst secret list           — list secrets in a vault
+ *   psst secret get <name>     — decrypt and print a secret
+ *   psst secret create         — interactively create a secret
+ *   psst secret delete <name>  — delete a secret
+ *   psst secret search <term>  — search across all vaults
  *   psst env pull              — pull .env from vault
  *   psst env push              — push .env to vault
  *   psst env run -- <cmd>      — run command with vault env vars injected
@@ -18,6 +22,7 @@ import { Command } from 'commander';
 import { makeLoginCommand, makeLogoutCommand, makeWhoamiCommand } from './commands/login';
 import { makeSecretCommand } from './commands/secret';
 import { makeEnvCommand } from './commands/env';
+import { makeVaultCommand } from './commands/vault';
 
 const program = new Command();
 
@@ -34,6 +39,9 @@ program.addCommand(makeWhoamiCommand());
 
 // Secret management
 program.addCommand(makeSecretCommand());
+
+// Vault management
+program.addCommand(makeVaultCommand());
 
 // Env var management
 program.addCommand(makeEnvCommand());

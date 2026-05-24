@@ -1068,7 +1068,7 @@ vault token export
   Warn: "This exposes your master key — only use in trusted CI environments"
 ```
 
-### Session 5.4 — general secret commands
+### ✅ Session 5.4 — general secret commands — DONE
 
 ```
 Implement general secret management commands.
