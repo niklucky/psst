@@ -16,7 +16,6 @@
   },
   "devDependencies": {
     "@psst/config": "workspace:*",
-    "@types/pg": "^8.20.0",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.22.3",

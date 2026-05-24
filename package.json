@@ -11,10 +11,12 @@
     "format": "turbo format"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "eslint": "^10.4.0",
     "eslint-plugin-import": "^2.32.0",
+    "pg": "^8.21.0",
     "prettier": "^3.8.3",
     "turbo": "^2.5.3",
     "typescript-eslint": "^8.59.4"

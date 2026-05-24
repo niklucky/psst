@@ -409,7 +409,7 @@ Note: the ciphertext in secrets is a JSON payload encrypted as a whole. Differen
 Generate and run migration.
 ```
 
-### Session 2.5 — types package + secret payload schemas
+### ✅ Session 2.5 — shared package + secret payload schemas — DONE (commit 0595d99)
 
 ```
 Implement @psst/types.

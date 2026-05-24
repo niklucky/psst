@@ -12,6 +12,20 @@
   },
   "devDependencies": {
     "@psst/config": "workspace:*",
+    "@types/pg": "^8.20.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.3",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.3",
+    "@psst/crypto": "workspace:*",
+    "@psst/db": "workspace:*",
+    "@psst/shared": "workspace:*",
+    "@trpc/server": "^11.17.0",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.22",
+    "zod": "^4.4.3"
   }
 }
