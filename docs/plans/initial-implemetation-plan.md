@@ -882,7 +882,7 @@ Tag management:
 Folder creation/rename: inline editing (click label → input appears)
 ```
 
-### Session 4.7 — vault sharing and member management
+### ✅ Session 4.7 — vault sharing and member management — DONE
 
 ```
 Implement vault member management and the invite flow.

@@ -4,6 +4,7 @@ import { foldersRouter } from './folders';
 import { organisationsRouter } from './organisations';
 import { secretsRouter } from './secrets';
 import { tagsRouter } from './tags';
+import { usersRouter } from './users';
 import { vaultsRouter } from './vaults';
 
 /**
@@ -16,6 +17,7 @@ export const appRouter = router({
   folder: foldersRouter,
   tag: tagsRouter,
   org: organisationsRouter,
+  user: usersRouter,
 });
 
 export type AppRouter = typeof appRouter;

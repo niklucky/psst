@@ -4,6 +4,7 @@ import { fromBase64, unwrapVaultKey } from '@psst/crypto';
 import { trpc } from '../../trpc';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { CreateVaultModal } from '../vaults/CreateVaultModal';
+import { PendingInvitesModal } from '../vault/PendingInvitesModal';
 
 /**
  * Authenticated layout — sidebar + main content.
@@ -13,6 +14,7 @@ export function AppLayout() {
   const { session, clearSession, addVaultKey } = useKeyVault();
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showInvitesBanner, setShowInvitesBanner] = useState(true);
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -23,6 +25,11 @@ export function AppLayout() {
 
   // ── Vault list (shared between sidebar + key unwrapping) ──────────────────
   const { data: vaults, isLoading: vaultsLoading } = trpc.vault.list.useQuery(undefined, {
+    enabled: !!session,
+  });
+
+  // ── Pending invites ───────────────────────────────────────────────────────
+  const { data: pendingInvites } = trpc.vault.getPendingInvites.useQuery(undefined, {
     enabled: !!session,
   });
 
@@ -109,10 +116,22 @@ export function AppLayout() {
           )}
         </nav>
 
+        {/* Pending invites badge */}
+        {pendingInvites && pendingInvites.length > 0 && (
+          <button
+            onClick={() => setShowInvitesBanner(true)}
+            className="mx-2 mb-2 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-left hover:bg-amber-100 transition-colors"
+          >
+            <span className="text-base">📬</span>
+            <span className="text-xs text-amber-800 font-medium">
+              {pendingInvites.length} vault invite{pendingInvites.length !== 1 ? 's' : ''}
+            </span>
+          </button>
+        )}
+
         {/* User footer */}
         <div className="border-t border-gray-100 p-3 flex items-center justify-between">
           <span className="text-xs text-gray-400 truncate max-w-[140px]">
-            {/* userId shown until we have a /me query */}
             {session.userId.slice(0, 8)}…
           </span>
           <button
@@ -135,6 +154,14 @@ export function AppLayout() {
         <CreateVaultModal
           session={session}
           onClose={() => setShowCreateModal(false)}
+        />
+      )}
+
+      {/* ── Pending invites modal ── */}
+      {showInvitesBanner && pendingInvites && pendingInvites.length > 0 && (
+        <PendingInvitesModal
+          invites={pendingInvites}
+          onDone={() => setShowInvitesBanner(false)}
         />
       )}
     </div>

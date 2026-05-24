@@ -96,7 +96,7 @@ export function RegisterPage() {
         privateKeyIv: toBase64(privateKeyIvBytes),
       });
 
-      // Store session in memory
+      // Store session in memory (private key stays encrypted until the invite flow needs it)
       setSessionToken(result.sessionToken);
       const vaultKeys = new Map<string, Uint8Array>();
       setSession({
@@ -104,6 +104,9 @@ export function RegisterPage() {
         sessionToken: result.sessionToken,
         masterKey,
         vaultKeys,
+        encryptedPrivateKey: toBase64(encryptedPrivateKey),
+        privateKeyIv: toBase64(privateKeyIvBytes),
+        publicKey: toBase64(publicKeyBytes),
       });
 
       navigate({ to: '/' });

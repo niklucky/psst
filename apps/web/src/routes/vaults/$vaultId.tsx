@@ -1,4 +1,4 @@
-import { useParams } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { CreateSecretModal } from '../../components/secrets/CreateSecretModal';
 import { SecretDetailPanel } from '../../components/secrets/SecretDetailPanel';
@@ -41,18 +41,29 @@ export function VaultDetailPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden h-full">
       {/* ── Vault name bar ── */}
-      <div className="h-14 shrink-0 border-b border-gray-200 bg-white flex items-center px-6 gap-3">
-        {vaultLoading ? (
-          <div className="h-5 w-48 rounded bg-gray-100 animate-pulse" />
-        ) : (
-          <>
-            <span className="text-xl shrink-0">🗄️</span>
-            <h1 className="font-semibold text-gray-900">{vault?.name ?? 'Vault'}</h1>
-            {vault?.description && (
-              <span className="text-sm text-gray-400 truncate">{vault.description}</span>
-            )}
-          </>
-        )}
+      <div className="h-14 shrink-0 border-b border-gray-200 bg-white flex items-center justify-between px-6">
+        <div className="flex items-center gap-3 min-w-0">
+          {vaultLoading ? (
+            <div className="h-5 w-48 rounded bg-gray-100 animate-pulse" />
+          ) : (
+            <>
+              <span className="text-xl shrink-0">🗄️</span>
+              <h1 className="font-semibold text-gray-900 truncate">{vault?.name ?? 'Vault'}</h1>
+              {vault?.description && (
+                <span className="text-sm text-gray-400 truncate">{vault.description}</span>
+              )}
+            </>
+          )}
+        </div>
+        <Link
+          to="/vaults/$vaultId/members"
+          params={{ vaultId }}
+          className="shrink-0 flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition-colors ml-4"
+          activeProps={{ className: '!text-indigo-700 font-medium' }}
+        >
+          <span>👥</span>
+          <span>Members</span>
+        </Link>
       </div>
 
       {/* ── Two-panel body (left sidebar + main content) ── */}

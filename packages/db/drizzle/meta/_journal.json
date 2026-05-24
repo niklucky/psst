@@ -30,5 +30,12 @@
       "tag": "0003_orange_madelyne_pryor",
       "breakpoints": true
     }
+    ,{
+      "idx": 4,
+      "version": "7",
+      "when": 1748130000000,
+      "tag": "0004_vault_members_invite",
+      "breakpoints": true
+    }
   ]
 }

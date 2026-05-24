@@ -5,9 +5,10 @@ import {
   organisations,
   organisationMembers,
   secrets,
+  users,
 } from '@psst/db';
 import { TRPCError } from '@trpc/server';
-import { and, count, eq, inArray, max } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import { protectedProcedure, router } from '../trpc';
 
@@ -31,8 +32,9 @@ async function requireVaultAccess(
 
 export const vaultsRouter = router({
   /**
-   * Lists all vaults the current user is a member of,
+   * Lists all vaults the current user is an ACTIVE member of,
    * including their personal encrypted vault key and aggregate counts.
+   * Pending invites are excluded — use vault.getPendingInvites for those.
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
@@ -49,7 +51,12 @@ export const vaultsRouter = router({
       })
       .from(vaultMembers)
       .innerJoin(vaults, eq(vaultMembers.vaultId, vaults.id))
-      .where(eq(vaultMembers.userId, ctx.session.userId));
+      .where(
+        and(
+          eq(vaultMembers.userId, ctx.session.userId),
+          eq(vaultMembers.inviteStatus, 'active'),
+        ),
+      );
 
     if (rows.length === 0) return [];
 
@@ -184,8 +191,9 @@ export const vaultsRouter = router({
 
   /**
    * Invites a user to a vault.
-   * The caller must supply the vault key already re-encrypted for the recipient
-   * (done client-side using the recipient's public key via ECDH).
+   * The caller must supply the vault key already ECDH-encrypted for the recipient
+   * (done client-side using the recipient's public key). The invite is stored as
+   * 'pending' until the recipient accepts via vault.acceptInvite.
    */
   invite: protectedProcedure
     .input(
@@ -193,14 +201,17 @@ export const vaultsRouter = router({
         vaultId: z.string().uuid(),
         userId: z.string().uuid(),
         role: z.enum(['editor', 'viewer']),
+        /** ECDH-encrypted vault key (base64) */
         encryptedVaultKey: z.string().min(1),
         vaultKeyIv: z.string().min(1),
+        /** Sender's X25519 public key (base64) — needed by recipient to ECDH-decrypt */
+        senderPublicKey: z.string().min(1),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       await requireVaultAccess(input.vaultId, ctx.session.userId, ['owner', 'editor']);
 
-      // Check recipient isn't already a member
+      // Check recipient isn't already a member or has a pending invite
       const [existing] = await db
         .select({ id: vaultMembers.id })
         .from(vaultMembers)
@@ -210,7 +221,10 @@ export const vaultsRouter = router({
         .limit(1);
 
       if (existing) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'User is already a vault member' });
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'User is already a vault member or has a pending invite',
+        });
       }
 
       await db.insert(vaultMembers).values({
@@ -220,7 +234,169 @@ export const vaultsRouter = router({
         encryptedVaultKey: input.encryptedVaultKey,
         vaultKeyIv: input.vaultKeyIv,
         grantedBy: ctx.session.userId,
+        inviteStatus: 'pending',
+        senderPublicKey: input.senderPublicKey,
       });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Returns pending vault invites for the current user.
+   * Includes vault name and sender info so the UI can show a meaningful prompt.
+   */
+  getPendingInvites: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select({
+        vaultId: vaultMembers.vaultId,
+        vaultName: vaults.name,
+        role: vaultMembers.role,
+        encryptedVaultKey: vaultMembers.encryptedVaultKey,
+        vaultKeyIv: vaultMembers.vaultKeyIv,
+        senderPublicKey: vaultMembers.senderPublicKey,
+        grantedBy: vaultMembers.grantedBy,
+        createdAt: vaultMembers.createdAt,
+      })
+      .from(vaultMembers)
+      .innerJoin(vaults, eq(vaultMembers.vaultId, vaults.id))
+      .where(
+        and(
+          eq(vaultMembers.userId, ctx.session.userId),
+          eq(vaultMembers.inviteStatus, 'pending'),
+        ),
+      );
+
+    // Fetch sender emails for display
+    const senderIds = [...new Set(rows.map((r) => r.grantedBy).filter(Boolean) as string[])];
+    const senderEmails =
+      senderIds.length > 0
+        ? await db
+            .select({ id: users.id, email: users.email })
+            .from(users)
+            .where(inArray(users.id, senderIds))
+        : [];
+    const emailMap = new Map(senderEmails.map((u) => [u.id, u.email]));
+
+    return rows.map((r) => ({
+      ...r,
+      senderEmail: r.grantedBy ? (emailMap.get(r.grantedBy) ?? null) : null,
+    }));
+  }),
+
+  /**
+   * Accepts a pending vault invite.
+   * The client must decrypt the ECDH-wrapped vault key, re-wrap it with their
+   * master key, and pass the new ciphertext + iv here.
+   */
+  acceptInvite: protectedProcedure
+    .input(
+      z.object({
+        vaultId: z.string().uuid(),
+        /** Master-key-wrapped vault key (replaces the ECDH-encrypted one) */
+        encryptedVaultKey: z.string().min(1),
+        vaultKeyIv: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [row] = await db
+        .select({ id: vaultMembers.id })
+        .from(vaultMembers)
+        .where(
+          and(
+            eq(vaultMembers.vaultId, input.vaultId),
+            eq(vaultMembers.userId, ctx.session.userId),
+            eq(vaultMembers.inviteStatus, 'pending'),
+          ),
+        )
+        .limit(1);
+
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'No pending invite found' });
+
+      await db
+        .update(vaultMembers)
+        .set({
+          encryptedVaultKey: input.encryptedVaultKey,
+          vaultKeyIv: input.vaultKeyIv,
+          inviteStatus: 'active',
+          senderPublicKey: null,
+        })
+        .where(eq(vaultMembers.id, row.id));
+
+      return { ok: true };
+    }),
+
+  /**
+   * Declines and removes a pending vault invite.
+   */
+  declineInvite: protectedProcedure
+    .input(z.object({ vaultId: z.string().uuid() }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .delete(vaultMembers)
+        .where(
+          and(
+            eq(vaultMembers.vaultId, input.vaultId),
+            eq(vaultMembers.userId, ctx.session.userId),
+            eq(vaultMembers.inviteStatus, 'pending'),
+          ),
+        );
+      return { ok: true };
+    }),
+
+  /**
+   * Returns the member list for a vault with user emails.
+   */
+  members: protectedProcedure
+    .input(z.object({ vaultId: z.string().uuid() }))
+    .query(async ({ input, ctx }) => {
+      await requireVaultAccess(input.vaultId, ctx.session.userId);
+
+      return db
+        .select({
+          userId: vaultMembers.userId,
+          email: users.email,
+          role: vaultMembers.role,
+          inviteStatus: vaultMembers.inviteStatus,
+          grantedAt: vaultMembers.createdAt,
+        })
+        .from(vaultMembers)
+        .innerJoin(users, eq(vaultMembers.userId, users.id))
+        .where(eq(vaultMembers.vaultId, input.vaultId));
+    }),
+
+  /**
+   * Changes a member's role. Requires owner role.
+   * Cannot change your own role (to prevent owner lock-out).
+   */
+  updateMemberRole: protectedProcedure
+    .input(
+      z.object({
+        vaultId: z.string().uuid(),
+        userId: z.string().uuid(),
+        role: z.enum(['owner', 'editor', 'viewer']),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      await requireVaultAccess(input.vaultId, ctx.session.userId, ['owner']);
+
+      if (input.userId === ctx.session.userId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot change your own role' });
+      }
+
+      const [target] = await db
+        .select({ id: vaultMembers.id })
+        .from(vaultMembers)
+        .where(
+          and(eq(vaultMembers.vaultId, input.vaultId), eq(vaultMembers.userId, input.userId)),
+        )
+        .limit(1);
+
+      if (!target) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      await db
+        .update(vaultMembers)
+        .set({ role: input.role })
+        .where(eq(vaultMembers.id, target.id));
 
       return { ok: true };
     }),

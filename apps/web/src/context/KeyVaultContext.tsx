@@ -12,6 +12,15 @@ export interface VaultSession {
   masterKey: Uint8Array;
   /** vaultId → decrypted vault key, populated lazily as vaults are opened */
   vaultKeys: Map<string, Uint8Array>;
+  /**
+   * X25519 private key material — stored for the invite flow only.
+   * The private key itself is never loaded into memory unless the user
+   * actively invites someone or accepts a vault invite.
+   */
+  encryptedPrivateKey: string; // base64
+  privateKeyIv: string; // base64
+  /** Caller's X25519 public key (base64) — sent to server so recipients can ECDH-decrypt */
+  publicKey: string;
 }
 
 interface KeyVaultContextValue {

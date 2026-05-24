@@ -4,6 +4,7 @@ import { LoginPage } from './routes/login';
 import { RegisterPage } from './routes/register';
 import { VaultsPage } from './routes/vaults/index';
 import { VaultDetailPage } from './routes/vaults/$vaultId';
+import { VaultMembersPage } from './routes/vaults/$vaultId/members';
 
 // ---- Root layout ----
 const rootRoute = createRootRoute({
@@ -47,17 +48,24 @@ const vaultsRoute = createRoute({
   component: VaultsPage,
 });
 
-// /vaults/$vaultId — vault detail (placeholder for Session 4.4)
+// /vaults/$vaultId — vault detail
 const vaultDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vaults/$vaultId',
   component: VaultDetailPage,
 });
 
+// /vaults/$vaultId/members — vault member management
+const vaultMembersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vaults/$vaultId/members',
+  component: VaultMembersPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
-  appRoute.addChildren([indexRoute, vaultsRoute, vaultDetailRoute]),
+  appRoute.addChildren([indexRoute, vaultsRoute, vaultDetailRoute, vaultMembersRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

@@ -83,7 +83,7 @@ export function LoginPage() {
         fromBase64(result.vaultKeyIv),
       );
 
-      // 6. Store everything in memory
+      // 6. Store everything in memory (private key stays encrypted until needed)
       setSessionToken(result.sessionToken);
       const vaultKeys = new Map<string, Uint8Array>();
       setSession({
@@ -91,6 +91,9 @@ export function LoginPage() {
         sessionToken: result.sessionToken,
         masterKey,
         vaultKeys,
+        encryptedPrivateKey: result.encryptedPrivateKey,
+        privateKeyIv: result.privateKeyIv,
+        publicKey: result.publicKey,
       });
 
       navigate({ to: '/' });
