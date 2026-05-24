@@ -15,6 +15,8 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod/v4';
 import { useKeyVault } from '../context/KeyVaultContext';
 import { trpcClient, setSessionToken } from '../trpc';
+import { PasswordStrength } from '../components/ui/PasswordStrength';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const schema = z
   .object({
@@ -30,6 +32,7 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 export function RegisterPage() {
+  usePageTitle('Create account');
   const navigate = useNavigate();
   const { setSession } = useKeyVault();
   const [status, setStatus] = useState<'idle' | 'deriving' | 'submitting' | 'error'>('idle');
@@ -38,8 +41,10 @@ export function RegisterPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const passwordValue = watch('password', '');
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -154,6 +159,7 @@ export function RegisterPage() {
             {errors.password && (
               <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
             )}
+            <PasswordStrength password={passwordValue} />
           </div>
 
           <div>

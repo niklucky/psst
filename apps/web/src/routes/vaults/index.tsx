@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { CreateVaultModal } from '../../components/vaults/CreateVaultModal';
 import { useKeyVault } from '../../context/KeyVaultContext';
+import { usePageTitle } from '../../hooks/usePageTitle';
 import { trpc } from '../../trpc';
 
 function formatDate(date: Date | string | null | undefined): string {
@@ -20,6 +21,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function VaultsPage() {
+  usePageTitle('Vaults');
   const { session } = useKeyVault();
   const [showCreateModal, setShowCreateModal] = useState(false);
 

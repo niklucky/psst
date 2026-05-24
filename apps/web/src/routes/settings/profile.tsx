@@ -12,6 +12,8 @@ import { useForm } from 'react-hook-form';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';
 import { encodeSaltField } from '../../utils/auth';
+import { usePageTitle } from '../../hooks/usePageTitle';
+import { PasswordStrength } from '../../components/ui/PasswordStrength';
 
 // ── Change Email ───────────────────────────────────────────────────────────
 
@@ -163,6 +165,7 @@ function ChangePasswordSection() {
             className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           {errors.newPassword && <p className="mt-1 text-xs text-red-600">{errors.newPassword.message}</p>}
+          <PasswordStrength password={newPassword} />
         </div>
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
@@ -252,6 +255,7 @@ function DeleteAccountSection() {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export function ProfileSettingsPage() {
+  usePageTitle('Profile');
   const { data: me, isLoading } = trpc.auth.me.useQuery();
 
   if (isLoading) {

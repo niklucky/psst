@@ -940,7 +940,7 @@ Route: /settings/profile
 Route: /settings (root, redirect to /settings/profile)
 ```
 
-### Session 4.9 — polish and UX
+### ✅ Session 4.9 — polish and UX — DONE
 
 ```
 Polish pass on the web app before moving to CLI.

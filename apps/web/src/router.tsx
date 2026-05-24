@@ -1,4 +1,5 @@
 import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@tanstack/react-router';
+import { z } from 'zod/v4';
 import { AppLayout } from './components/layout/AppLayout';
 import { SettingsLayout } from './components/layout/SettingsLayout';
 import { LoginPage } from './routes/login';
@@ -51,10 +52,12 @@ const vaultsRoute = createRoute({
 });
 
 // /vaults/$vaultId — vault detail
+// Optional `?secret=<id>` lets the command palette pre-select a secret
 const vaultDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vaults/$vaultId',
   component: VaultDetailPage,
+  validateSearch: z.object({ secret: z.string().optional() }),
 });
 
 // /vaults/$vaultId/members

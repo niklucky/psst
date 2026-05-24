@@ -7,6 +7,7 @@ import { z } from 'zod/v4';
 import { useKeyVault } from '../context/KeyVaultContext';
 import { trpcClient, setSessionToken } from '../trpc';
 import { parseSaltField } from '../utils/auth';
+import { usePageTitle } from '../hooks/usePageTitle';
 
 const schema = z.object({
   email: z.email(),
@@ -17,6 +18,7 @@ type FormValues = z.infer<typeof schema>;
 
 
 export function LoginPage() {
+  usePageTitle('Sign in');
   const navigate = useNavigate();
   const { setSession, addVaultKey } = useKeyVault();
   const [status, setStatus] = useState<'idle' | 'fetching-salt' | 'deriving' | 'submitting' | 'error'>('idle');

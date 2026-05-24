@@ -1,5 +1,6 @@
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle';
 import { CreateSecretModal } from '../../components/secrets/CreateSecretModal';
 import { SecretDetailPanel } from '../../components/secrets/SecretDetailPanel';
 import { SecretList } from '../../components/secrets/SecretList';
@@ -10,6 +11,7 @@ import { trpc } from '../../trpc';
 
 export function VaultDetailPage() {
   const { vaultId } = useParams({ strict: false }) as { vaultId: string };
+  const { secret: initialSecretId } = useSearch({ strict: false }) as { secret?: string };
   const { session } = useKeyVault();
 
   // ── Filter state ──────────────────────────────────────────────────────────
@@ -27,7 +29,8 @@ export function VaultDetailPage() {
     });
 
   // ── Panel state ───────────────────────────────────────────────────────────
-  const [selectedSecretId, setSelectedSecretId] = useState<string | null>(null);
+  // initialSecretId comes from the command palette (?secret=... search param)
+  const [selectedSecretId, setSelectedSecretId] = useState<string | null>(initialSecretId ?? null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // ── Vault header ──────────────────────────────────────────────────────────
@@ -35,6 +38,7 @@ export function VaultDetailPage() {
     { vaultId },
     { enabled: !!session && !!vaultId },
   );
+  usePageTitle(vault?.name);
 
   if (!session) return null;
 

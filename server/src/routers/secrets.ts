@@ -1,4 +1,4 @@
-import { db, folders, secretTags, secretVersions, secrets, tags, vaultMembers } from '@psst/db';
+import { db, folders, secretTags, secretVersions, secrets, tags, vaultMembers, vaults } from '@psst/db';
 import { SECRET_TYPES } from '@psst/shared';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, ilike, inArray } from 'drizzle-orm';
@@ -240,6 +240,45 @@ export const secretsRouter = router({
       await requireSecretAccess(input.secretId, ctx.session.userId, ['owner', 'editor']);
       await db.delete(secrets).where(eq(secrets.id, input.secretId));
       return { ok: true };
+    }),
+
+  /**
+   * Searches secret names across ALL vaults the user is an active member of.
+   * Used by the command palette (Ctrl+K). Never returns ciphertext.
+   */
+  globalSearch: protectedProcedure
+    .input(z.object({ query: z.string().max(200) }))
+    .query(async ({ input, ctx }) => {
+      const q = input.query.trim();
+      if (!q) return [];
+
+      const memberships = await db
+        .select({ vaultId: vaultMembers.vaultId })
+        .from(vaultMembers)
+        .where(
+          and(
+            eq(vaultMembers.userId, ctx.session.userId),
+            eq(vaultMembers.inviteStatus, 'active'),
+          ),
+        );
+
+      if (memberships.length === 0) return [];
+
+      const vaultIds = memberships.map((m) => m.vaultId);
+
+      return db
+        .select({
+          id: secrets.id,
+          name: secrets.name,
+          type: secrets.type,
+          vaultId: secrets.vaultId,
+          vaultName: vaults.name,
+          updatedAt: secrets.updatedAt,
+        })
+        .from(secrets)
+        .innerJoin(vaults, eq(secrets.vaultId, vaults.id))
+        .where(and(inArray(secrets.vaultId, vaultIds), ilike(secrets.name, `%${q}%`)))
+        .limit(20);
     }),
 
   /** Returns version history (ciphertext + iv) for a secret. */

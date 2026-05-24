@@ -3,8 +3,14 @@ import { useEffect, useState } from 'react';
 import { fromBase64, unwrapVaultKey } from '@psst/crypto';
 import { trpc } from '../../trpc';
 import { useKeyVault } from '../../context/KeyVaultContext';
+import { useIdleLock } from '../../hooks/useIdleLock';
 import { CreateVaultModal } from '../vaults/CreateVaultModal';
 import { PendingInvitesModal } from '../vault/PendingInvitesModal';
+import { CommandPalette } from '../CommandPalette';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
+
+/** Default idle lock timeout: 15 minutes */
+const DEFAULT_IDLE_MS = 15 * 60 * 1000;
 
 /**
  * Authenticated layout — sidebar + main content.
@@ -15,6 +21,8 @@ export function AppLayout() {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInvitesBanner, setShowInvitesBanner] = useState(true);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -22,6 +30,35 @@ export function AppLayout() {
       void navigate({ to: '/login', replace: true });
     }
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Idle lock ─────────────────────────────────────────────────────────────
+  const idleTimeoutMs = (() => {
+    try {
+      const stored = localStorage.getItem('psst:idle_timeout_ms');
+      return stored ? parseInt(stored, 10) : DEFAULT_IDLE_MS;
+    } catch {
+      return DEFAULT_IDLE_MS;
+    }
+  })();
+
+  useIdleLock(() => {
+    if (session) {
+      clearSession();
+      void navigate({ to: '/login', replace: true });
+    }
+  }, idleTimeoutMs);
+
+  // ── Ctrl/Cmd+K → command palette ─────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowCommandPalette((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // ── Current user info ─────────────────────────────────────────────────────
   const { data: me } = trpc.auth.me.useQuery(undefined, { enabled: !!session });
@@ -49,7 +86,7 @@ export function AppLayout() {
         );
         addVaultKey(vault.id, key);
       } catch {
-        // Vault key was encrypted via ECDH (shared vault) — handled in Session 4.7.
+        // Vault key was encrypted via ECDH — handled in PendingInvitesModal.
       }
     }
   }, [vaults]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -61,22 +98,42 @@ export function AppLayout() {
     try {
       await logoutMutation.mutateAsync();
     } catch {
-      // Best-effort — clear locally regardless.
+      // Best-effort.
     }
     clearSession();
     void navigate({ to: '/login', replace: true });
   };
 
-  // Don't render while redirecting.
   if (!session) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* ── Mobile overlay ── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* ── Sidebar ── */}
-      <aside className="w-60 shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-gray-200 flex flex-col overflow-hidden
+          transition-transform duration-200
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          md:relative md:translate-x-0 md:z-auto
+        `}
+      >
         {/* Logo */}
-        <div className="h-14 flex items-center px-4 border-b border-gray-100">
+        <div className="h-14 flex items-center justify-between px-4 border-b border-gray-100">
           <span className="text-lg font-bold text-gray-900">🔐 Psst</span>
+          <button
+            className="md:hidden text-gray-400 hover:text-gray-600"
+            onClick={() => setSidebarOpen(false)}
+          >
+            ×
+          </button>
         </div>
 
         {/* Vault list */}
@@ -103,6 +160,7 @@ export function AppLayout() {
               key={vault.id}
               to="/vaults/$vaultId"
               params={{ vaultId: vault.id }}
+              onClick={() => setSidebarOpen(false)}
               className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-gray-700 hover:bg-gray-50"
               activeProps={{ className: '!text-indigo-700 !bg-indigo-50 font-medium' }}
               activeOptions={{ exact: false }}
@@ -161,11 +219,36 @@ export function AppLayout() {
       </aside>
 
       {/* ── Main content ── */}
-      <main className="flex-1 overflow-hidden flex flex-col">
-        <Outlet />
+      <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+        {/* Mobile top bar */}
+        <div className="h-12 flex items-center gap-3 px-4 border-b border-gray-200 bg-white md:hidden shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="text-gray-600 hover:text-gray-900 text-xl"
+            aria-label="Open menu"
+          >
+            ☰
+          </button>
+          <span className="text-sm font-bold text-gray-900">🔐 Psst</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setShowCommandPalette(true)}
+            className="text-xs text-gray-400 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50 flex items-center gap-1"
+          >
+            <span>🔍</span>
+            <kbd className="text-xs">⌘K</kbd>
+          </button>
+        </div>
+
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
-      {/* ── Create vault modal ── */}
+      {/* ── Search hint in desktop sidebar top area ── */}
+      {/* (desktop Ctrl+K hint is in the keyboard shortcut) */}
+
+      {/* ── Modals ── */}
       {showCreateModal && (
         <CreateVaultModal
           session={session}
@@ -173,12 +256,15 @@ export function AppLayout() {
         />
       )}
 
-      {/* ── Pending invites modal ── */}
       {showInvitesBanner && pendingInvites && pendingInvites.length > 0 && (
         <PendingInvitesModal
           invites={pendingInvites}
           onDone={() => setShowInvitesBanner(false)}
         />
+      )}
+
+      {showCommandPalette && (
+        <CommandPalette onClose={() => setShowCommandPalette(false)} />
       )}
     </div>
   );
