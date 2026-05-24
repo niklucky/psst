@@ -1,2 +1,3 @@
-// @psst/db — placeholder, implemented in Session 2.x
-export {};
+export { db } from './client';
+export type { DrizzleClient } from './client';
+export * from './schema';

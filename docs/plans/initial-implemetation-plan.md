@@ -35,12 +35,12 @@ Root structure:
     extension/    (WXT — Chrome + Firefox)
     cli/          (TypeScript, Node, compiled with tsup)
   packages/
-    crypto/       (@vault/crypto)
-    db/           (@vault/db — Drizzle schema + client)
-    api/          (@vault/api — tRPC router definitions)
-    ui/           (@vault/ui — shared React components)
-    types/        (@vault/types — Zod schemas + inferred types)
-    config/       (@vault/config — shared tsconfig, eslint, prettier)
+    crypto/       (@psst/crypto)
+    db/           (@psst/db — Drizzle schema + client)
+    api/          (@psst/api — tRPC router definitions)
+    ui/           (@psst/ui — shared React components)
+    types/        (@psst/types — Zod schemas + inferred types)
+    config/       (@psst/config — shared tsconfig, eslint, prettier)
   server/         (Hono + tRPC adapter — the actual API process)
 
 Root files:
@@ -51,8 +51,8 @@ Root files:
   .gitignore
 
 Each app and package needs:
-  package.json with correct name (@vault/web etc.)
-  tsconfig.json extending @vault/config/tsconfig.base.json
+  package.json with correct name (@psst/web etc.)
+  tsconfig.json extending @psst/config/tsconfig.base.json
   A placeholder index or main file so the build doesn't fail
 
 Do not install app-specific dependencies yet. Scaffold structure only.
@@ -61,7 +61,7 @@ Do not install app-specific dependencies yet. Scaffold structure only.
 ### ✅ Session 0.2 — shared config package — DONE (commit 620eb6f)
 
 ```
-Implement @vault/config.
+Implement @psst/config.
 
 Contents:
   tsconfig.base.json   — strict TypeScript, ESNext, bundler moduleResolution
@@ -102,7 +102,7 @@ Pipeline should pass green on the empty scaffold.
 ### ✅ Session 1.1 — primitives — DONE (commit 6add596, 13/13 tests)
 
 ```
-Implement @vault/crypto using @noble/ciphers and @noble/hashes.
+Implement @psst/crypto using @noble/ciphers and @noble/hashes.
 
 File: packages/crypto/src/primitives.ts
 
@@ -138,7 +138,7 @@ Add Vitest. Write tests:
 ### ✅ Session 1.2 — vault key operations — DONE (commit 633cc25, 19/19 tests)
 
 ```
-Implement high-level vault key operations in @vault/crypto.
+Implement high-level vault key operations in @psst/crypto.
 
 File: packages/crypto/src/vault.ts
 
@@ -181,7 +181,7 @@ Tests:
 ### ✅ Session 1.3 — keypair operations (for team sharing) — DONE (commit 112d993, 26/26 tests)
 
 ```
-Implement X25519 keypair operations in @vault/crypto.
+Implement X25519 keypair operations in @psst/crypto.
 
 File: packages/crypto/src/sharing.ts
 
@@ -225,7 +225,7 @@ Tests:
 ### ✅ Session 1.4 — encoding helpers — DONE (commit 4e6404b, 26/26 tests)
 
 ```
-Add encoding utilities to @vault/crypto — needed for serialising binary to/from the DB and API.
+Add encoding utilities to @psst/crypto — needed for serialising binary to/from the DB and API.
 
 File: packages/crypto/src/encoding.ts
 
@@ -237,7 +237,7 @@ Functions:
   textToBytes(str: string): Uint8Array
   bytesToText(bytes: Uint8Array): string
 
-These wrap the @noble built-ins so the rest of the codebase never imports @noble directly — only @vault/crypto.
+These wrap the @noble built-ins so the rest of the codebase never imports @noble directly — only @psst/crypto.
 
 Update packages/crypto/src/index.ts to export everything.
 Run all existing tests. Zero failures required before proceeding.
@@ -252,7 +252,7 @@ Run all existing tests. Zero failures required before proceeding.
 ### Session 2.1 — Drizzle setup
 
 ```
-Set up @vault/db package.
+Set up @psst/db package.
 
 Install: drizzle-orm, drizzle-kit, pg, @types/pg, dotenv
 
@@ -270,7 +270,7 @@ Add a `db:generate` and `db:migrate` script to package.json.
 ### Session 2.2 — users and auth schema
 
 ```
-Define users and auth tables in @vault/db using Drizzle.
+Define users and auth tables in @psst/db using Drizzle.
 
 File: packages/db/src/schema/users.ts
 
@@ -311,7 +311,7 @@ Generate migration. Run it against a local Postgres instance to verify.
 ### Session 2.3 — organisation and vault schema
 
 ```
-Define org, vault, and membership tables in @vault/db.
+Define org, vault, and membership tables in @psst/db.
 
 File: packages/db/src/schema/vaults.ts
 
@@ -359,7 +359,7 @@ Generate and run migration.
 ### Session 2.4 — secrets schema
 
 ```
-Define secrets, folders, and tags tables in @vault/db.
+Define secrets, folders, and tags tables in @psst/db.
 
 File: packages/db/src/schema/secrets.ts
 
@@ -404,7 +404,7 @@ Tables:
     created_by  uuid references users(id)
     created_at  timestamp default now()
 
-Note: the ciphertext in secrets is a JSON payload encrypted as a whole. Different types have different JSON shapes — define those shapes as Zod schemas in @vault/types, not in the DB schema.
+Note: the ciphertext in secrets is a JSON payload encrypted as a whole. Different types have different JSON shapes — define those shapes as Zod schemas in @psst/types, not in the DB schema.
 
 Generate and run migration.
 ```
@@ -412,9 +412,9 @@ Generate and run migration.
 ### Session 2.5 — types package + secret payload schemas
 
 ```
-Implement @vault/types.
+Implement @psst/types.
 
-File: packages/types/src/secrets.ts
+File: packages/shared/src/secrets.ts
 
 Define Zod schemas for the encrypted JSON payloads (decrypted client-side):
 
@@ -448,8 +448,8 @@ Define Zod schemas for the encrypted JSON payloads (decrypted client-side):
 
   SecretPayload = LoginPayload | NotePayload | EnvVarPayload | FilePayload | CardPayload
 
-File: packages/types/src/api.ts — API request/response schemas (fill in as tRPC is built)
-File: packages/types/src/index.ts — re-export everything
+File: packages/shared/src/api.ts — API request/response schemas (fill in as tRPC is built)
+File: packages/shared/src/index.ts — re-export everything
 
 All schemas should be strict (no extra keys). Infer and export TypeScript types from Zod schemas.
 ```
@@ -465,7 +465,7 @@ All schemas should be strict (no extra keys). Infer and export TypeScript types 
 ```
 Bootstrap the server package.
 
-Install: hono, @hono/node-server, @trpc/server, zod, dotenv, @vault/db, @vault/types
+Install: hono, @hono/node-server, @trpc/server, zod, dotenv, @psst/db, @psst/types
 
 File: server/src/index.ts    — Hono app, listens on PORT env var
 File: server/src/trpc.ts     — tRPC init, context type, base router
@@ -709,7 +709,7 @@ Install: react, react-dom, @vitejs/plugin-react, vite, typescript
 Install: @tanstack/react-router, @tanstack/react-query
 Install: @trpc/client, @trpc/react-query, @trpc/tanstack-react-query
 Install: tailwindcss, @tailwindcss/vite, shadcn/ui (init)
-Install: @vault/crypto, @vault/types, @vault/api (tRPC client)
+Install: @psst/crypto, @psst/types, @psst/api (tRPC client)
 
 File structure:
   apps/web/src/
@@ -726,7 +726,7 @@ File structure:
         settings/
     components/
       layout/
-      ui/               — re-exports from @vault/ui
+      ui/               — re-exports from @psst/ui
 
 Session key in memory only — store the vault key and session token in a React context
 (not localStorage, not sessionStorage). On page refresh, user must log in again.
@@ -970,7 +970,7 @@ Items:
 ```
 Scaffold the CLI app (apps/cli).
 
-Install: commander, @trpc/client, node-fetch, keytar, dotenv, @vault/crypto, @vault/types
+Install: commander, @trpc/client, node-fetch, keytar, dotenv, @psst/crypto, @psst/types
 Install dev: tsup (build), tsx (dev)
 
 File structure:
@@ -984,7 +984,7 @@ File structure:
     lib/
       auth.ts         — session management (keytar for OS keychain)
       api.ts          — tRPC client
-      crypto.ts       — re-exports from @vault/crypto, handles key material in memory
+      crypto.ts       — re-exports from @psst/crypto, handles key material in memory
       config.ts       — reads ~/.vault/config.json for server URL, org, etc.
 
 Build output: dist/index.js, add shebang, publish bin as vault.

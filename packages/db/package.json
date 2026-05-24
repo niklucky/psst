@@ -8,10 +8,22 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "echo \"No tests yet\"",
-    "lint": "echo \"No lint yet\""
+    "lint": "echo \"No lint yet\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:push": "drizzle-kit push"
   },
   "devDependencies": {
     "@psst/config": "workspace:*",
+    "@types/pg": "^8.20.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.22.3",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.21.0"
   }
 }

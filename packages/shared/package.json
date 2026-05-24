@@ -1,8 +1,8 @@
 {
-  "name": "@psst/types",
+  "name": "@psst/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "Zod schemas and inferred TypeScript types",
+  "description": "Shared Zod schemas, inferred types, and utility functions",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
