@@ -594,7 +594,7 @@ Procedures:
 Wire into main router.
 ```
 
-### Session 3.4 — secrets router
+### ✅ Session 3.4 — secrets router — DONE (commit c4d068d)
 
 ```
 Implement secrets tRPC router.
