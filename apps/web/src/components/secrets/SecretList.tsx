@@ -196,6 +196,11 @@ export function SecretList({
               return (
                 <li
                   key={secret.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', secret.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   onClick={() => onSecretClick?.(secret.id)}
                   className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
                     selectedSecretId === secret.id

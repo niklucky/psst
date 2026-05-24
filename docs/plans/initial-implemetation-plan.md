@@ -863,7 +863,7 @@ Create flow ("+" button in list):
   Same encryption flow as update
 ```
 
-### Session 4.6 — folders and tags UI
+### ✅ Session 4.6 — folders and tags UI — DONE
 
 ```
 Implement folder management and tag management in the web app.

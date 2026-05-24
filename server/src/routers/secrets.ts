@@ -191,6 +191,7 @@ export const secretsRouter = router({
         ciphertext: z.string().min(1).optional(),
         iv: z.string().min(1).optional(),
         tagIds: z.array(z.string().uuid()).optional(),
+        folderId: z.string().uuid().nullable().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -206,6 +207,7 @@ export const secretsRouter = router({
         if (input.name) updates.name = input.name;
         if (input.ciphertext) updates.ciphertext = input.ciphertext;
         if (input.iv) updates.iv = input.iv;
+        if (input.folderId !== undefined) updates.folderId = input.folderId;
 
         await tx.update(secrets).set(updates).where(eq(secrets.id, input.secretId));
 
