@@ -23,6 +23,9 @@ export function AppLayout() {
     }
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Current user info ─────────────────────────────────────────────────────
+  const { data: me } = trpc.auth.me.useQuery(undefined, { enabled: !!session });
+
   // ── Vault list (shared between sidebar + key unwrapping) ──────────────────
   const { data: vaults, isLoading: vaultsLoading } = trpc.vault.list.useQuery(undefined, {
     enabled: !!session,
@@ -131,16 +134,29 @@ export function AppLayout() {
 
         {/* User footer */}
         <div className="border-t border-gray-100 p-3 flex items-center justify-between">
-          <span className="text-xs text-gray-400 truncate max-w-[140px]">
-            {session.userId.slice(0, 8)}…
-          </span>
-          <button
-            onClick={handleLogout}
-            disabled={logoutMutation.isPending}
-            className="text-xs text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50"
+          <Link
+            to="/settings/profile"
+            className="text-xs text-gray-400 truncate max-w-[130px] hover:text-indigo-600 transition-colors"
+            title="Settings"
           >
-            {logoutMutation.isPending ? 'Signing out…' : 'Sign out'}
-          </button>
+            {me?.email ?? `${session.userId.slice(0, 8)}…`}
+          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/settings/profile"
+              title="Settings"
+              className="text-gray-400 hover:text-gray-700 text-base leading-none transition-colors"
+            >
+              ⚙
+            </Link>
+            <button
+              onClick={handleLogout}
+              disabled={logoutMutation.isPending}
+              className="text-xs text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-50"
+            >
+              {logoutMutation.isPending ? '…' : 'Sign out'}
+            </button>
+          </div>
         </div>
       </aside>
 

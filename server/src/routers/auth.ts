@@ -1,5 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { db, sessions, userCredentials, users, organisations, organisationMembers } from '@psst/db';
+import {
+  db,
+  sessions,
+  userCredentials,
+  users,
+  organisations,
+  organisationMembers,
+  vaultMembers,
+} from '@psst/db';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod/v4';
@@ -196,6 +204,96 @@ export const authRouter = router({
    */
   logout: protectedProcedure.mutation(async ({ ctx }) => {
     await db.delete(sessions).where(eq(sessions.id, ctx.session.sessionId));
+    return { ok: true };
+  }),
+
+  /**
+   * Updates the current user's email address.
+   * Relies on the existing authenticated session; no password re-entry required.
+   */
+  changeEmail: protectedProcedure
+    .input(z.object({ newEmail: z.email() }))
+    .mutation(async ({ input, ctx }) => {
+      const email = input.newEmail.toLowerCase();
+
+      const [conflict] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (conflict && conflict.id !== ctx.session.userId) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Email already in use' });
+      }
+
+      await db.update(users).set({ email, updatedAt: new Date() }).where(eq(users.id, ctx.session.userId));
+
+      return { ok: true };
+    }),
+
+  /**
+   * Changes the user's password.
+   * The client re-derives all crypto material (new master key → re-wraps private key
+   * and every active vault key) and sends the new blobs here in one transaction.
+   */
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        /** argon2id(newPassword, newAuthSalt) */
+        newAuthHash: z.string().min(1),
+        /** base64 JSON { masterSalt, authSalt } */
+        newArgon2Salt: z.string().min(1),
+        /** AES-256-GCM(privateKey, newMasterKey) */
+        newEncryptedPrivateKey: z.string().min(1),
+        newPrivateKeyIv: z.string().min(1),
+        /** Re-wrapped vault keys for all active vault memberships */
+        vaultKeys: z.array(
+          z.object({
+            vaultId: z.string().uuid(),
+            encryptedVaultKey: z.string().min(1),
+            vaultKeyIv: z.string().min(1),
+          }),
+        ),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      await db.transaction(async (tx) => {
+        // Update user credentials
+        await tx
+          .update(userCredentials)
+          .set({
+            authHash: input.newAuthHash,
+            argon2Salt: input.newArgon2Salt,
+            encryptedPrivateKey: input.newEncryptedPrivateKey,
+            privateKeyIv: input.newPrivateKeyIv,
+            updatedAt: new Date(),
+          })
+          .where(eq(userCredentials.userId, ctx.session.userId));
+
+        // Re-wrap all active vault member keys
+        for (const vk of input.vaultKeys) {
+          await tx
+            .update(vaultMembers)
+            .set({ encryptedVaultKey: vk.encryptedVaultKey, vaultKeyIv: vk.vaultKeyIv })
+            .where(
+              and(
+                eq(vaultMembers.vaultId, vk.vaultId),
+                eq(vaultMembers.userId, ctx.session.userId),
+                eq(vaultMembers.inviteStatus, 'active'),
+              ),
+            );
+        }
+      });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Permanently deletes the current user's account and all associated data.
+   * Cascades to: sessions, credentials, org memberships, vault memberships, secrets.
+   */
+  deleteAccount: protectedProcedure.mutation(async ({ ctx }) => {
+    await db.delete(users).where(eq(users.id, ctx.session.userId));
     return { ok: true };
   }),
 

@@ -6,6 +6,8 @@ import {
   organisations,
   users,
   userCredentials,
+  vaults,
+  vaultMembers,
 } from '@psst/db';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
@@ -241,6 +243,34 @@ export const organisationsRouter = router({
         );
 
       return { ok: true };
+    }),
+
+  /**
+   * Lists vaults that belong to an organisation AND that the current user is a member of.
+   */
+  vaults: protectedProcedure
+    .input(z.object({ orgId: z.string().uuid() }))
+    .query(async ({ input, ctx }) => {
+      await requireOrgAccess(input.orgId, ctx.session.userId);
+
+      return db
+        .select({
+          id: vaults.id,
+          name: vaults.name,
+          description: vaults.description,
+          createdAt: vaults.createdAt,
+          role: vaultMembers.role,
+        })
+        .from(vaults)
+        .innerJoin(
+          vaultMembers,
+          and(
+            eq(vaultMembers.vaultId, vaults.id),
+            eq(vaultMembers.userId, ctx.session.userId),
+            eq(vaultMembers.inviteStatus, 'active'),
+          ),
+        )
+        .where(eq(vaults.organisationId, input.orgId));
     }),
 
   /**

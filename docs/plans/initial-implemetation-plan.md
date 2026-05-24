@@ -913,7 +913,7 @@ When an invited user logs in:
   Store in KeyVaultContext
 ```
 
-### Session 4.8 — organisation management
+### ✅ Session 4.8 — organisation management — DONE
 
 ```
 Implement organisation management pages.

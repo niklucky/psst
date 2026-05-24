@@ -1,9 +1,4 @@
-import {
-  deriveMasterKey,
-  fromBase64,
-  toBase64,
-  unwrapVaultKey,
-} from '@psst/crypto';
+import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey } from '@psst/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
@@ -11,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod/v4';
 import { useKeyVault } from '../context/KeyVaultContext';
 import { trpcClient, setSessionToken } from '../trpc';
+import { parseSaltField } from '../utils/auth';
 
 const schema = z.object({
   email: z.email(),
@@ -19,20 +15,6 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-/** Parses the combined argon2Salt field stored during registration. */
-function parseSaltField(argon2SaltFull: string): { masterSalt: Uint8Array; authSalt: Uint8Array } {
-  try {
-    const decoded = new TextDecoder().decode(fromBase64(argon2SaltFull));
-    const parsed = JSON.parse(decoded) as { masterSalt: string; authSalt: string };
-    return {
-      masterSalt: fromBase64(parsed.masterSalt),
-      authSalt: fromBase64(parsed.authSalt),
-    };
-  } catch {
-    // Legacy format — treat the whole field as the master salt
-    return { masterSalt: fromBase64(argon2SaltFull), authSalt: fromBase64(argon2SaltFull) };
-  }
-}
 
 export function LoginPage() {
   const navigate = useNavigate();
