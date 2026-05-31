@@ -160,7 +160,14 @@ export function SecretDetailPanel({ secretId, vaultId, onClose }: Props) {
             case 'card':
               return <CardDetail {...commonProps} payload={decrypted as CardPayload} />;
             case 'file':
-              return <FileDetail {...commonProps} payload={decrypted as FilePayload} />;
+              return (
+                <FileDetail
+                  {...commonProps}
+                  secretId={secretId}
+                  vaultKey={vaultKey!}
+                  payload={decrypted as FilePayload}
+                />
+              );
             default:
               return <p className="text-sm text-gray-500">Unknown secret type.</p>;
           }

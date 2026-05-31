@@ -1,4 +1,4 @@
-import { encryptSecret, toBase64 } from '@psst/crypto';
+import { encrypt, encryptSecret, toBase64 } from '@psst/crypto';
 import type {
   CardPayload,
   EnvVarPayload,
@@ -20,7 +20,7 @@ const TYPES: { type: SecretType; icon: string; label: string; description: strin
   { type: 'note', icon: '📝', label: 'Secure note', description: 'Free-form text / Markdown' },
   { type: 'env_var', icon: '⚙️', label: 'Env variables', description: 'KEY=VALUE pairs' },
   { type: 'card', icon: '💳', label: 'Payment card', description: 'Number, expiry, CVV' },
-  { type: 'file', icon: '📄', label: 'File', description: 'Encrypted file (storage coming soon)' },
+  { type: 'file', icon: '📄', label: 'File', description: 'Encrypted file attachment' },
 ];
 
 function TypePicker({ onPick }: { onPick: (type: SecretType) => void }) {
@@ -224,28 +224,158 @@ function CardCreateForm({
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function FileCreateForm({
+  vaultId,
+  session,
   onCancel,
+  onClose,
 }: {
-  onSubmit: (name: string, payload: FilePayload) => Promise<void>;
-  isSaving: boolean;
+  vaultId: string;
+  session: VaultSession;
   onCancel: () => void;
+  onClose: () => void;
 }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState('');
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isWorking, setIsWorking] = useState(false);
+  const utils = trpc.useUtils();
+
+  const uploadUrlMutation = trpc.file.getUploadUrl.useMutation();
+  const createMutation = trpc.secret.create.useMutation({
+    onSuccess: () => {
+      void utils.secret.list.invalidate();
+      onClose();
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) return;
+
+    const vaultKey = session.vaultKeys.get(vaultId);
+    if (!vaultKey) {
+      setError('Vault key not available — try logging out and back in.');
+      return;
+    }
+
+    setError(null);
+    setIsWorking(true);
+    setProgress(0);
+
+    try {
+      const { uploadUrl, storageKey } = await uploadUrlMutation.mutateAsync({
+        vaultId,
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+      });
+
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const { ciphertext: encryptedBytes, iv: fileIv } = encrypt(fileBytes, vaultKey);
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () =>
+          xhr.status >= 200 && xhr.status < 300
+            ? resolve()
+            : reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.send(new Uint8Array(encryptedBytes));
+      });
+
+      const filePayload: FilePayload = {
+        filename: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size: file.size,
+        storage_key: storageKey,
+        file_iv: toBase64(fileIv),
+      };
+      const { ciphertext, iv } = encryptSecret(JSON.stringify(filePayload), vaultKey);
+
+      await createMutation.mutateAsync({
+        vaultId,
+        type: 'file',
+        name: name.trim() || file.name,
+        ciphertext: toBase64(ciphertext),
+        iv: toBase64(iv),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed — please try again.');
+      setProgress(null);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
-        <p className="text-sm text-gray-500">
-          📦 File upload requires object storage — coming in a later session.
-        </p>
+    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+          Name <span className="text-gray-300 font-normal normal-case">(optional — defaults to filename)</span>
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. SSH key"
+          disabled={isWorking}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
       </div>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="w-full rounded-lg border border-gray-200 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+
+      <label
+        className={`flex flex-col items-center gap-2 p-6 rounded-lg border-2 border-dashed transition-colors ${
+          isWorking
+            ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+            : file
+              ? 'border-indigo-400 bg-indigo-50 cursor-pointer'
+              : 'border-gray-300 hover:border-indigo-300 hover:bg-gray-50 cursor-pointer'
+        }`}
       >
-        Cancel
-      </button>
-    </div>
+        <span className="text-2xl">{file ? '📄' : '📁'}</span>
+        <span className="text-sm font-medium text-gray-700">
+          {file ? file.name : 'Click to choose a file'}
+        </span>
+        {file && <span className="text-xs text-gray-400">{formatBytes(file.size)}</span>}
+        <input
+          type="file"
+          className="sr-only"
+          disabled={isWorking}
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
+      </label>
+
+      {progress !== null && (
+        <div className="space-y-1">
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-indigo-500 transition-all duration-200"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-right text-xs text-gray-400">{progress}%</p>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-600 rounded-lg bg-red-50 px-3 py-2">{error}</p>
+      )}
+
+      <EditButtons onCancel={onCancel} isSaving={isWorking || createMutation.isPending} />
+    </form>
   );
 }
 
@@ -352,9 +482,10 @@ export function CreateSecretModal({ vaultId, session, onClose }: Props) {
           )}
           {selectedType === 'file' && (
             <FileCreateForm
-              onSubmit={handleCreate as (name: string, payload: FilePayload) => Promise<void>}
-              isSaving={createMutation.isPending}
-              onCancel={onClose}
+              vaultId={vaultId}
+              session={session}
+              onCancel={() => setSelectedType(null)}
+              onClose={onClose}
             />
           )}
 

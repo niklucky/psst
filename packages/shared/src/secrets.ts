@@ -43,8 +43,10 @@ export const FilePayloadSchema = z
     filename: z.string(),
     mime_type: z.string(),
     size: z.number().int().nonnegative(),
-    /** Reference to object storage — the file itself is also encrypted */
+    /** Reference to object storage — the file itself is AES-256-GCM encrypted */
     storage_key: z.string(),
+    /** Base64 IV used to encrypt the file blob */
+    file_iv: z.string(),
   })
   .strict();
 
