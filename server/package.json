@@ -11,17 +11,18 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format cjs",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"No lint yet\"",
-    "test": "echo \"No tests yet\""
+    "test": "vitest run"
   },
   "devDependencies": {
     "@psst/config": "workspace:*",
     "@types/pg": "^8.20.0",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",
