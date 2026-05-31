@@ -2,12 +2,10 @@ import type { AppRouter } from '@psst/api';
 import { createTRPCClient, httpBatchLink, type TRPCClient } from '@trpc/client';
 import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query';
 
-const SERVER_URL = import.meta.env['VITE_SERVER_URL'] ?? 'http://localhost:3001';
-
 function makeLinks(getToken: () => string | null) {
   return [
     httpBatchLink({
-      url: `${SERVER_URL}/trpc`,
+      url: '/api/trpc',
       headers: () => {
         const token = getToken();
         return token ? { Authorization: `Bearer ${token}` } : {};

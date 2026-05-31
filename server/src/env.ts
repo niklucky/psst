@@ -1,10 +1,9 @@
 import { z } from 'zod/v4';
 
 const EnvSchema = z.object({
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z.url(),  
   SESSION_SECRET: z.string().min(32),
   PORT: z.coerce.number().default(3001),
-  CORS_ORIGIN: z.string().default('http://localhost:3000'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 
