@@ -28,10 +28,10 @@ const registerRoute = createRoute({
   component: RegisterPage,
 });
 
-// ---- Authenticated app layout ----
+// ---- Authenticated app layout (pathless — wraps auth routes without owning a path) ----
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/',
+  id: '_app',
   component: AppLayout,
 });
 
