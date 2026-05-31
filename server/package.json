@@ -24,6 +24,8 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1057.0",
+    "@aws-sdk/s3-request-presigner": "^3.1057.0",
     "@hono/node-server": "^2.0.3",
     "@noble/hashes": "^2.2.0",
     "@psst/crypto": "workspace:*",
