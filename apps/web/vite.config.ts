@@ -9,7 +9,6 @@ export default defineConfig({
     proxy: {
       '/api/trpc': {
         target: 'http://localhost:3001',
-        rewrite: (path) => path.replace(/^\/api\/trpc/, '/trpc'),
       },
     },
   },

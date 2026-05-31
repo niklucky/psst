@@ -1,5 +1,6 @@
 import './setup'; // must be first — loads .env before any other module initializes
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { db } from '@psst/db';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { sql } from 'drizzle-orm';
@@ -26,9 +27,9 @@ app.get('/health', async (c) => {
 });
 
 // ---- tRPC handler ----
-app.all('/trpc/*', async (c) => {
+app.all('/api/trpc/*', async (c) => {
   return fetchRequestHandler({
-    endpoint: '/trpc',
+    endpoint: '/api/trpc',
     req: c.req.raw,
     router: appRouter,
     createContext: () => ({
@@ -37,6 +38,11 @@ app.all('/trpc/*', async (c) => {
     }),
   });
 });
+
+// ---- Static files (web app) — served from ./public in production ----
+app.use('/*', serveStatic({ root: './public' }));
+// SPA fallback: unknown paths hand off to client-side router
+app.get('/*', serveStatic({ root: './public', path: 'index.html' }));
 
 // ---- Start server ----
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {

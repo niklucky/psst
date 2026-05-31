@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+*.md
+.env*
+coverage
+**/coverage
+.turbo
+**/.turbo
+apps/cli
+apps/desktop
+apps/extension
+apps/mobile
+docs

@@ -2,7 +2,6 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'server'
+
 allowBuilds:
-  keytar: set this to true or false
-onlyBuiltDependencies:
-  - esbuild
+  esbuild: true
