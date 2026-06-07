@@ -47,9 +47,16 @@ RUN node -e "\
 # Server bundle
 COPY --from=builder /app/server/dist ./dist
 
+# Drizzle migration SQL files — applied on container start by docker-entrypoint.sh
+COPY --from=builder /app/packages/db/drizzle ./drizzle
+
 # Web static files — served by Hono from ./public at runtime
 COPY --from=builder /app/apps/web/dist ./public
 
+COPY server/docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 3001
 ENV NODE_ENV=production
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
