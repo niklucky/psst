@@ -66,14 +66,11 @@ export function UnlockPage() {
         privateKeyIv: me.privateKeyIv,
         publicKey: me.publicKey,
       });
-
-      navigate({ to: '/' });
     } catch (err: unknown) {
       const code = (err as { data?: { code?: string } })?.data?.code;
       if (code === 'UNAUTHORIZED') {
         // The token itself is no longer valid server-side — full logout.
         clearSession();
-        setSessionToken(null);
         void navigate({ to: '/login', replace: true });
         return;
       }
@@ -81,12 +78,14 @@ export function UnlockPage() {
       setStatus('error');
       setErrorMsg('Incorrect password.');
       console.error(err);
+      return;
     }
+
+    void navigate({ to: '/' });
   };
 
   const handleSignOut = () => {
     clearSession();
-    setSessionToken(null);
     void navigate({ to: '/login', replace: true });
   };
 
@@ -105,9 +104,12 @@ export function UnlockPage() {
           className="space-y-4 rounded-xl bg-white p-8 shadow-sm border border-gray-100"
         >
           <div>
-            <label className="block text-sm font-medium text-gray-700">Master password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              Master password
+            </label>
             <input
               {...register('password')}
+              id="password"
               type="password"
               autoComplete="current-password"
               autoFocus

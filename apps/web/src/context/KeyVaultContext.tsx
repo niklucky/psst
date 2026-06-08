@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { setSessionToken } from '../trpc';
 
 /**
  * The session token is an opaque, server-revocable bearer token — not key
@@ -91,11 +92,13 @@ export function KeyVaultProvider({ children }: { children: ReactNode }) {
     setSessionState(null);
     setLockedToken(null);
     persistToken(null);
+    setSessionToken(null);
   };
 
   const lock = () => {
     if (session) setLockedToken(session.sessionToken);
     setSessionState(null);
+    setSessionToken(null);
   };
 
   return (
