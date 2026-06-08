@@ -24,13 +24,18 @@ vi.mock('@psst/db', () => ({
   invitations: {},
 }));
 
-import { db } from '@psst/db';
+import { db, sessions } from '@psst/db';
 import { appRouter } from '../routers';
 import { createCallerFactory } from '../trpc';
 
 const createCaller = createCallerFactory(appRouter);
 // Context db is unused (routers import db directly); pass undefined to satisfy types
 const caller = createCaller({ db: undefined as any, session: null });
+
+/** Caller with a fake authenticated session attached — for protectedProcedure routes. */
+function authedCaller(session: { userId: string; sessionId: string }) {
+  return createCaller({ db: undefined as any, session });
+}
 
 /** Builds a chainable drizzle-style query mock that resolves to `result`. */
 function makeChain(result: unknown[] = []): any {
@@ -110,5 +115,102 @@ describe('auth.login', () => {
     expect(result.sessionToken).toMatch(/^[0-9a-f]{64}$/);
     expect(result.argon2Salt).toBe('user-salt');
     expect(result.publicKey).toBe('pub-key');
+  });
+});
+
+describe('auth.register', () => {
+  const validInput = {
+    email: 'newuser@example.com',
+    argon2Salt: 'salt',
+    authHash: 'hash',
+    encryptedVaultKey: 'evk',
+    vaultKeyIv: 'iv',
+    publicKey: 'pub',
+    encryptedPrivateKey: 'epk',
+    privateKeyIv: 'piv',
+  };
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.transaction).mockReset();
+  });
+
+  it('throws CONFLICT when the email is already registered', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([{ id: 'existing-user' }]));
+
+    await expect(caller.auth.register(validInput)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('creates the user, personal org, membership and session, returning a fresh token', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([])); // email not taken
+    vi.mocked(db.transaction).mockImplementation(
+      (async (fn: any) => fn({ insert: vi.fn(() => makeChain([{ id: 'mock-id' }])) })) as any,
+    );
+
+    const result = await caller.auth.register(validInput);
+
+    expect(result.userId).toBe('mock-id');
+    expect(result.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.expiresAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('auth.logout', () => {
+  beforeEach(() => {
+    vi.mocked(db.delete).mockReset();
+  });
+
+  it('requires an authenticated session', async () => {
+    await expect(caller.auth.logout()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it("deletes the caller's session row", async () => {
+    const deleteChain = makeChain([]);
+    vi.mocked(db.delete).mockReturnValue(deleteChain);
+
+    const result = await authedCaller({ userId: 'user-1', sessionId: 'session-1' }).auth.logout();
+
+    expect(result).toEqual({ ok: true });
+    expect(db.delete).toHaveBeenCalledWith(sessions);
+    expect(deleteChain.where).toHaveBeenCalled();
+  });
+});
+
+describe('auth.me', () => {
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+  });
+
+  it('requires an authenticated session', async () => {
+    await expect(caller.auth.me()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it("returns the caller's profile and encrypted credential blobs", async () => {
+    const row = {
+      id: 'user-1',
+      email: 'alice@example.com',
+      emailVerifiedAt: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      argon2Salt: 'salt',
+      encryptedVaultKey: 'evk',
+      vaultKeyIv: 'iv',
+      publicKey: 'pub',
+      encryptedPrivateKey: 'epk',
+      privateKeyIv: 'piv',
+    };
+    vi.mocked(db.select).mockReturnValue(makeChain([row]));
+
+    const result = await authedCaller({ userId: 'user-1', sessionId: 'session-1' }).auth.me();
+
+    expect(result).toEqual(row);
+  });
+
+  it('throws NOT_FOUND when the user record no longer exists', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([]));
+
+    await expect(
+      authedCaller({ userId: 'ghost', sessionId: 'session-1' }).auth.me(),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

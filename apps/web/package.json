@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo \"No lint yet\"",
     "test": "echo \"No tests yet\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:auth": "playwright test --config=playwright.auth.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

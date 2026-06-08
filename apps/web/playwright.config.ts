@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  // Full-stack auth suite needs a live API + Postgres; it has its own
+  // config/runner (playwright.auth.config.ts, `pnpm test:e2e:auth`).
+  testIgnore: '**/auth/**',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
