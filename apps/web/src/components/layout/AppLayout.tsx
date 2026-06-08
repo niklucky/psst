@@ -17,7 +17,7 @@ const DEFAULT_IDLE_MS = 15 * 60 * 1000;
  * Redirects to /login when there is no active session.
  */
 export function AppLayout() {
-  const { session, clearSession, addVaultKey } = useKeyVault();
+  const { session, lockedToken, lock, clearSession, addVaultKey } = useKeyVault();
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInvitesBanner, setShowInvitesBanner] = useState(true);
@@ -25,11 +25,12 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ── Auth guard ────────────────────────────────────────────────────────────
+  // No master key in memory: send to /unlock if a session token survived a
+  // reload (just needs the password again), otherwise to /login.
   useEffect(() => {
-    if (!session) {
-      void navigate({ to: '/login', replace: true });
-    }
-  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (session) return;
+    void navigate({ to: lockedToken ? '/unlock' : '/login', replace: true });
+  }, [session, lockedToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Idle lock ─────────────────────────────────────────────────────────────
   const idleTimeoutMs = (() => {
@@ -43,8 +44,8 @@ export function AppLayout() {
 
   useIdleLock(() => {
     if (session) {
-      clearSession();
-      void navigate({ to: '/login', replace: true });
+      lock();
+      void navigate({ to: '/unlock', replace: true });
     }
   }, idleTimeoutMs);
 

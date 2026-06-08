@@ -1,7 +1,7 @@
 import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey } from '@psst/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod/v4';
 import { useKeyVault } from '../context/KeyVaultContext';
@@ -20,9 +20,14 @@ type FormValues = z.infer<typeof schema>;
 export function LoginPage() {
   usePageTitle('Sign in');
   const navigate = useNavigate();
-  const { setSession, addVaultKey } = useKeyVault();
+  const { setSession, lockedToken } = useKeyVault();
   const [status, setStatus] = useState<'idle' | 'fetching-salt' | 'deriving' | 'submitting' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // A session token survived a reload — send to /unlock instead of a full re-login.
+  useEffect(() => {
+    if (lockedToken) void navigate({ to: '/unlock', replace: true });
+  }, [lockedToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     register,

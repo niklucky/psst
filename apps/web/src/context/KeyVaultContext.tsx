@@ -1,9 +1,34 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
 /**
+ * The session token is an opaque, server-revocable bearer token — not key
+ * material — so it's safe to persist across reloads. The master key (and
+ * everything derived from it) stays in memory only; see `lock` / `lockedToken`.
+ */
+const TOKEN_STORAGE_KEY = 'psst:session_token';
+
+function readPersistedToken(): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistToken(token: string | null): void {
+  try {
+    if (token) sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+    else sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage unavailable (private browsing, etc.) — degrade to memory-only.
+  }
+}
+
+/**
  * Holds all key material for the current session.
- * Stored in memory only — never written to localStorage or sessionStorage.
- * On page refresh the user must log in again (correct zero-knowledge behaviour).
+ * The master key is stored in memory only — never written to localStorage or
+ * sessionStorage. A page refresh therefore "locks" the vault (see
+ * `lockedToken`) rather than fully logging the user out.
  */
 export interface VaultSession {
   userId: string;
@@ -25,17 +50,33 @@ export interface VaultSession {
 
 interface KeyVaultContextValue {
   session: VaultSession | null;
+  /**
+   * Set when a persisted session token was found (e.g. after a reload) but the
+   * master key hasn't been re-derived yet — the vault is "locked" and the user
+   * just needs to re-enter their password, not fully log in again.
+   */
+  lockedToken: string | null;
   setSession: (session: VaultSession | null) => void;
   addVaultKey: (vaultId: string, key: Uint8Array) => void;
+  /** Full logout — wipes the in-memory session and the persisted token. */
   clearSession: () => void;
+  /** Drops the master key but keeps the session token, moving to the "locked" state. */
+  lock: () => void;
 }
 
 const KeyVaultContext = createContext<KeyVaultContextValue | null>(null);
 
 export function KeyVaultProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<VaultSession | null>(null);
+  const [lockedToken, setLockedToken] = useState<string | null>(() => readPersistedToken());
 
-  const setSession = (s: VaultSession | null) => setSessionState(s);
+  const setSession = (s: VaultSession | null) => {
+    setSessionState(s);
+    if (s) {
+      persistToken(s.sessionToken);
+      setLockedToken(null);
+    }
+  };
 
   const addVaultKey = (vaultId: string, key: Uint8Array) => {
     setSessionState((prev) => {
@@ -46,10 +87,21 @@ export function KeyVaultProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const clearSession = () => setSessionState(null);
+  const clearSession = () => {
+    setSessionState(null);
+    setLockedToken(null);
+    persistToken(null);
+  };
+
+  const lock = () => {
+    if (session) setLockedToken(session.sessionToken);
+    setSessionState(null);
+  };
 
   return (
-    <KeyVaultContext.Provider value={{ session, setSession, addVaultKey, clearSession }}>
+    <KeyVaultContext.Provider
+      value={{ session, lockedToken, setSession, addVaultKey, clearSession, lock }}
+    >
       {children}
     </KeyVaultContext.Provider>
   );
