@@ -15,6 +15,36 @@ import { encodeSaltField } from '../../utils/auth';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { PasswordStrength } from '../../components/ui/PasswordStrength';
 
+// ── Email Verification ──────────────────────────────────────────────────────
+
+function EmailVerificationSection({ verified }: { verified: boolean }) {
+  const mutation = trpc.auth.resendVerificationEmail.useMutation();
+
+  if (verified) return null;
+
+  return (
+    <section className="bg-amber-50 rounded-xl border border-amber-200 p-6 flex items-center justify-between gap-4">
+      <div>
+        <h2 className="text-sm font-semibold text-amber-900">Email not verified</h2>
+        <p className="text-xs text-amber-700 mt-1">
+          Please check your inbox for a verification link.
+        </p>
+      </div>
+      {mutation.isSuccess ? (
+        <span className="text-xs text-green-700 whitespace-nowrap">Email sent ✓</span>
+      ) : (
+        <button
+          onClick={() => void mutation.mutateAsync()}
+          disabled={mutation.isPending}
+          className="rounded-lg bg-amber-600 text-white text-sm px-4 py-1.5 hover:bg-amber-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          {mutation.isPending ? 'Sending…' : 'Resend email'}
+        </button>
+      )}
+    </section>
+  );
+}
+
 // ── Change Email ───────────────────────────────────────────────────────────
 
 function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
@@ -275,6 +305,7 @@ export function ProfileSettingsPage() {
         <p className="text-sm text-gray-500 mt-1">Manage your account settings.</p>
       </div>
 
+      <EmailVerificationSection verified={!!me?.emailVerifiedAt} />
       <ChangeEmailSection currentEmail={me?.email ?? ''} />
       <ChangePasswordSection />
       <DeleteAccountSection />

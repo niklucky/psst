@@ -8,7 +8,7 @@ time**. Each stage is marked complete only after the user has hand-tested it.
 | Stage | Feature | Status |
 |-------|---------|--------|
 | 1 | Email service (`@psst/email`, Resend) | ✅ done |
-| 2 | Welcome email + email verification | ⬜ not started |
+| 2 | Welcome email + email verification | ✅ done |
 | 3 | Step-up email verification (new device/location/stale session) | ⬜ not started |
 | 4 | 2FA (TOTP + backup codes) | ⬜ not started |
 | 5 | PassKey (WebAuthn) login, auth-only | ⬜ not started |

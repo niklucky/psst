@@ -7,14 +7,20 @@ import {
   organisations,
   organisationMembers,
   vaultMembers,
+  emailVerifications,
 } from '@psst/db';
+import { sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod/v4';
+import { env } from '../env';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
 
 /** Session lifetime: 30 days */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Email verification link lifetime: 24 hours */
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -22,6 +28,23 @@ function hashToken(token: string): string {
 
 function generateSessionToken(): string {
   return randomBytes(32).toString('hex');
+}
+
+/**
+ * Creates a fresh email verification token for a user and emails them a
+ * welcome message containing the verification link.
+ */
+async function sendVerificationEmail(userId: string, email: string): Promise<void> {
+  const token = generateSessionToken();
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+
+  await db.insert(emailVerifications).values({ userId, tokenHash, expiresAt });
+
+  const verifyUrl = `${env.APP_URL}/verify-email/${token}`;
+  const { subject, html, text } = welcomeEmail({ verifyUrl });
+
+  await sendEmail({ to: email, subject, html, text });
 }
 
 export const authRouter = router({
@@ -131,6 +154,8 @@ export const authRouter = router({
         return { token, sessionId: session.id, userId: user.id, expiresAt };
       });
 
+      await sendVerificationEmail(result.userId, email);
+
       return {
         sessionToken: result.token,
         userId: result.userId,
@@ -226,7 +251,13 @@ export const authRouter = router({
         throw new TRPCError({ code: 'CONFLICT', message: 'Email already in use' });
       }
 
-      await db.update(users).set({ email, updatedAt: new Date() }).where(eq(users.id, ctx.session.userId));
+      await db
+        .update(users)
+        .set({ email, emailVerifiedAt: null, updatedAt: new Date() })
+        .where(eq(users.id, ctx.session.userId));
+
+      await db.delete(emailVerifications).where(eq(emailVerifications.userId, ctx.session.userId));
+      await sendVerificationEmail(ctx.session.userId, email);
 
       return { ok: true };
     }),
@@ -324,5 +355,59 @@ export const authRouter = router({
     }
 
     return row;
+  }),
+
+  /**
+   * Verifies an email address using the token from the welcome/verification email.
+   */
+  verifyEmail: publicProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const tokenHash = hashToken(input.token);
+
+      const [verification] = await db
+        .select()
+        .from(emailVerifications)
+        .where(
+          and(eq(emailVerifications.tokenHash, tokenHash), gt(emailVerifications.expiresAt, new Date())),
+        )
+        .limit(1);
+
+      if (!verification) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired verification link' });
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+          .where(eq(users.id, verification.userId));
+
+        await tx.delete(emailVerifications).where(eq(emailVerifications.userId, verification.userId));
+      });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Resends the email verification link to the current user.
+   */
+  resendVerificationEmail: protectedProcedure.mutation(async ({ ctx }) => {
+    const [user] = await db
+      .select({ email: users.email, emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, ctx.session.userId))
+      .limit(1);
+
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+    if (user.emailVerifiedAt) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Email already verified' });
+    }
+
+    await db.delete(emailVerifications).where(eq(emailVerifications.userId, ctx.session.userId));
+    await sendVerificationEmail(ctx.session.userId, user.email);
+
+    return { ok: true };
   }),
 });

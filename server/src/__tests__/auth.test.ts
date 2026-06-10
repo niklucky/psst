@@ -22,6 +22,12 @@ vi.mock('@psst/db', () => ({
   secretTags: {},
   secretVersions: {},
   invitations: {},
+  emailVerifications: {},
+}));
+
+vi.mock('@psst/email', () => ({
+  sendEmail: vi.fn(),
+  welcomeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
 }));
 
 import { db, sessions } from '@psst/db';
@@ -133,6 +139,7 @@ describe('auth.register', () => {
   beforeEach(() => {
     vi.mocked(db.select).mockReset();
     vi.mocked(db.transaction).mockReset();
+    vi.mocked(db.insert).mockReset();
   });
 
   it('throws CONFLICT when the email is already registered', async () => {
@@ -144,6 +151,7 @@ describe('auth.register', () => {
 
   it('creates the user, personal org, membership and session, returning a fresh token', async () => {
     vi.mocked(db.select).mockReturnValue(makeChain([])); // email not taken
+    vi.mocked(db.insert).mockReturnValue(makeChain([])); // email verification token insert
     vi.mocked(db.transaction).mockImplementation(
       (async (fn: any) => fn({ insert: vi.fn(() => makeChain([{ id: 'mock-id' }])) })) as any,
     );
