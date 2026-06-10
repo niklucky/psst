@@ -10,6 +10,12 @@ const EnvSchema = z.object({
   STORAGE_SECRET_KEY: z.string().min(1),
   STORAGE_BUCKET: z.string().default('psst-files'),
   STORAGE_REGION: z.string().default('us-east-1'),
+  /** Resend API key — emails are logged to the console instead when unset (dev/test) */
+  RESEND_API_KEY: z.string().optional(),
+  /** "From" header for outgoing emails, e.g. "Psst <noreply@yourdomain.com>" */
+  EMAIL_FROM: z.string().optional(),
+  /** Base URL of the web app — used to build links in emails */
+  APP_URL: z.url().default('http://localhost:5173'),
 });
 
 function parseEnv() {

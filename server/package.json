@@ -31,6 +31,7 @@
     "@noble/hashes": "^2.2.0",
     "@psst/crypto": "workspace:*",
     "@psst/db": "workspace:*",
+    "@psst/email": "workspace:*",
     "@psst/shared": "workspace:*",
     "@trpc/server": "^11.17.0",
     "dotenv": "^17.4.2",
