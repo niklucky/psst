@@ -47,6 +47,14 @@ export interface VaultSession {
   privateKeyIv: string; // base64
   /** Caller's X25519 public key (base64) — sent to server so recipients can ECDH-decrypt */
   publicKey: string;
+  /**
+   * The user's personal vault key blob, wrapped under the master key. Carried so
+   * `changePassword` can re-wrap it under the new master key — without this it
+   * stays wrapped under the old key and `/unlock` (which uses it as the
+   * password-correctness check) fails after the next reload.
+   */
+  encryptedVaultKey: string; // base64
+  vaultKeyIv: string; // base64
 }
 
 interface KeyVaultContextValue {

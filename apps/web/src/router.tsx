@@ -4,6 +4,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { SettingsLayout } from './components/layout/SettingsLayout';
 import { LoginPage } from './routes/login';
 import { RegisterPage } from './routes/register';
+import { RecoverPage } from './routes/recover';
 import { UnlockPage } from './routes/unlock';
 import { VerifyEmailPage } from './routes/verify-email';
 import { VaultsPage } from './routes/vaults/index';
@@ -28,6 +29,12 @@ const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/register',
   component: RegisterPage,
+});
+
+const recoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/recover',
+  component: RecoverPage,
 });
 
 const unlockRoute = createRoute({
@@ -114,6 +121,7 @@ const orgSettingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
+  recoverRoute,
   unlockRoute,
   verifyEmailRoute,
   appRoute.addChildren([

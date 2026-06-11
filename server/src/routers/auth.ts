@@ -14,6 +14,7 @@ import {
   backupCodes,
   webauthnCredentials,
   webauthnChallenges,
+  recoveryKeys,
 } from '@psst/db';
 import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
@@ -604,6 +605,9 @@ export const authRouter = router({
         newAuthHash: z.string().min(1),
         /** base64 JSON { masterSalt, authSalt } */
         newArgon2Salt: z.string().min(1),
+        /** AES-256-GCM(personalVaultKey, newMasterKey) — the unlock sentinel blob */
+        newEncryptedVaultKey: z.string().min(1),
+        newVaultKeyIv: z.string().min(1),
         /** AES-256-GCM(privateKey, newMasterKey) */
         newEncryptedPrivateKey: z.string().min(1),
         newPrivateKeyIv: z.string().min(1),
@@ -625,6 +629,8 @@ export const authRouter = router({
           .set({
             authHash: input.newAuthHash,
             argon2Salt: input.newArgon2Salt,
+            encryptedVaultKey: input.newEncryptedVaultKey,
+            vaultKeyIv: input.newVaultKeyIv,
             encryptedPrivateKey: input.newEncryptedPrivateKey,
             privateKeyIv: input.newPrivateKeyIv,
             updatedAt: new Date(),
@@ -644,6 +650,11 @@ export const authRouter = router({
               ),
             );
         }
+
+        // A new password derives a new master key, so the stored recovery blob
+        // (which wraps the *old* master key) is now stale. Drop it — the user is
+        // prompted in settings to generate a fresh recovery code.
+        await tx.delete(recoveryKeys).where(eq(recoveryKeys.userId, ctx.session.userId));
       });
 
       return { ok: true };
@@ -1152,5 +1163,220 @@ export const authRouter = router({
       if (!row) throw new TRPCError({ code: 'NOT_FOUND' });
 
       return issueSession(row, ctx.req);
+    }),
+
+  // ─── Vault recovery key (stage 6) ───────────────────────────────────────────
+
+  /**
+   * Returns whether the current user has a recovery key configured.
+   */
+  recoveryStatus: protectedProcedure.query(async ({ ctx }) => {
+    const [row] = await db
+      .select({ id: recoveryKeys.id })
+      .from(recoveryKeys)
+      .where(eq(recoveryKeys.userId, ctx.session.userId))
+      .limit(1);
+
+    return { enabled: !!row };
+  }),
+
+  /**
+   * Stores (or replaces) the recovery blob. All crypto is done client-side from
+   * the in-memory master key: the recovery code, both salts, the wrapped master
+   * key and the recovery auth hash are generated/derived in the browser, and only
+   * the resulting blobs arrive here — the server never sees the recovery code.
+   */
+  recoverySetup: protectedProcedure
+    .input(
+      z.object({
+        recoverySalt: z.string().min(1),
+        recoveryAuthSalt: z.string().min(1),
+        recoveryAuthHash: z.string().min(1),
+        wrappedMasterKey: z.string().min(1),
+        recoveryKeyIv: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .insert(recoveryKeys)
+        .values({ userId: ctx.session.userId, ...input })
+        .onConflictDoUpdate({
+          target: recoveryKeys.userId,
+          set: { ...input, updatedAt: new Date() },
+        });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Removes the user's recovery key, disabling password recovery.
+   */
+  recoveryDisable: protectedProcedure.mutation(async ({ ctx }) => {
+    await db.delete(recoveryKeys).where(eq(recoveryKeys.userId, ctx.session.userId));
+    return { ok: true };
+  }),
+
+  /**
+   * Begins recovery: given an email, returns the recovery salts + wrapped master
+   * key (so the client can unwrap the master key from the recovery code) plus all
+   * blobs currently wrapped under that master key (personal vault key, private
+   * key, and every active shared vault key) so the client can re-wrap them under
+   * the new password's master key in `completeRecovery`.
+   *
+   * Everything returned is E2EE ciphertext — useless without the recovery code —
+   * so this is unauthenticated, the same trust boundary as `getSalt`.
+   */
+  beginRecovery: publicProcedure
+    .input(z.object({ email: z.email() }))
+    .mutation(async ({ input }) => {
+      const email = input.email.toLowerCase();
+
+      const [row] = await db
+        .select({
+          userId: users.id,
+          recoverySalt: recoveryKeys.recoverySalt,
+          recoveryAuthSalt: recoveryKeys.recoveryAuthSalt,
+          wrappedMasterKey: recoveryKeys.wrappedMasterKey,
+          recoveryKeyIv: recoveryKeys.recoveryKeyIv,
+          encryptedVaultKey: userCredentials.encryptedVaultKey,
+          vaultKeyIv: userCredentials.vaultKeyIv,
+          encryptedPrivateKey: userCredentials.encryptedPrivateKey,
+          privateKeyIv: userCredentials.privateKeyIv,
+        })
+        .from(users)
+        .innerJoin(recoveryKeys, eq(recoveryKeys.userId, users.id))
+        .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+        .where(eq(users.email, email))
+        .limit(1);
+
+      // Don't reveal whether the email exists or has recovery configured.
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'No recovery key found for this account' });
+      }
+
+      const memberships = await db
+        .select({
+          vaultId: vaultMembers.vaultId,
+          encryptedVaultKey: vaultMembers.encryptedVaultKey,
+          vaultKeyIv: vaultMembers.vaultKeyIv,
+        })
+        .from(vaultMembers)
+        .where(and(eq(vaultMembers.userId, row.userId), eq(vaultMembers.inviteStatus, 'active')));
+
+      return {
+        recoverySalt: row.recoverySalt,
+        recoveryAuthSalt: row.recoveryAuthSalt,
+        wrappedMasterKey: row.wrappedMasterKey,
+        recoveryKeyIv: row.recoveryKeyIv,
+        encryptedVaultKey: row.encryptedVaultKey,
+        vaultKeyIv: row.vaultKeyIv,
+        encryptedPrivateKey: row.encryptedPrivateKey,
+        privateKeyIv: row.privateKeyIv,
+        vaultKeys: memberships,
+      };
+    }),
+
+  /**
+   * Completes recovery. Authenticated by `recoveryAuthHash` (proof the caller
+   * holds the recovery code). In one transaction: re-wraps the credential blobs
+   * + every active vault key under the new password's master key, rotates the
+   * recovery blob (the used code is now void — the client supplies a freshly
+   * generated one), and revokes all existing sessions. Then issues a fresh
+   * session via the same path as login, so the client — which already holds the
+   * new master key — lands straight in the unlocked vault.
+   */
+  completeRecovery: publicProcedure
+    .input(
+      z.object({
+        email: z.email(),
+        /** argon2id("recovery-auth:" + recoveryCode, recoveryAuthSalt) */
+        recoveryAuthHash: z.string().min(1),
+        /** argon2id(newPassword, newAuthSalt) */
+        newAuthHash: z.string().min(1),
+        /** base64 JSON { masterSalt, authSalt } */
+        newArgon2Salt: z.string().min(1),
+        newEncryptedVaultKey: z.string().min(1),
+        newVaultKeyIv: z.string().min(1),
+        newEncryptedPrivateKey: z.string().min(1),
+        newPrivateKeyIv: z.string().min(1),
+        vaultKeys: z.array(
+          z.object({
+            vaultId: z.string().uuid(),
+            encryptedVaultKey: z.string().min(1),
+            vaultKeyIv: z.string().min(1),
+          }),
+        ),
+        /** Freshly-generated recovery blob that replaces the consumed one */
+        newRecovery: z.object({
+          recoverySalt: z.string().min(1),
+          recoveryAuthSalt: z.string().min(1),
+          recoveryAuthHash: z.string().min(1),
+          wrappedMasterKey: z.string().min(1),
+          recoveryKeyIv: z.string().min(1),
+        }),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const email = input.email.toLowerCase();
+
+      const [row] = await db
+        .select({
+          userId: users.id,
+          recoveryAuthHash: recoveryKeys.recoveryAuthHash,
+        })
+        .from(users)
+        .innerJoin(recoveryKeys, eq(recoveryKeys.userId, users.id))
+        .where(eq(users.email, email))
+        .limit(1);
+
+      // Constant-time-ish: always compare even if no user/recovery row.
+      const storedHash = row?.recoveryAuthHash ?? '';
+      const matches = storedHash === input.recoveryAuthHash && storedHash.length > 0;
+
+      if (!row || !matches) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid recovery code' });
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(userCredentials)
+          .set({
+            authHash: input.newAuthHash,
+            argon2Salt: input.newArgon2Salt,
+            encryptedVaultKey: input.newEncryptedVaultKey,
+            vaultKeyIv: input.newVaultKeyIv,
+            encryptedPrivateKey: input.newEncryptedPrivateKey,
+            privateKeyIv: input.newPrivateKeyIv,
+            updatedAt: new Date(),
+          })
+          .where(eq(userCredentials.userId, row.userId));
+
+        for (const vk of input.vaultKeys) {
+          await tx
+            .update(vaultMembers)
+            .set({ encryptedVaultKey: vk.encryptedVaultKey, vaultKeyIv: vk.vaultKeyIv })
+            .where(
+              and(
+                eq(vaultMembers.vaultId, vk.vaultId),
+                eq(vaultMembers.userId, row.userId),
+                eq(vaultMembers.inviteStatus, 'active'),
+              ),
+            );
+        }
+
+        // Rotate the recovery blob — the code just used is now void.
+        await tx
+          .update(recoveryKeys)
+          .set({ ...input.newRecovery, updatedAt: new Date() })
+          .where(eq(recoveryKeys.userId, row.userId));
+
+        // A password reset must revoke every existing session.
+        await tx.delete(sessions).where(eq(sessions.userId, row.userId));
+      });
+
+      const credentialRow = await loadCredentialRow(row.userId);
+      if (!credentialRow) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      return issueSession(credentialRow, ctx.req);
     }),
 });

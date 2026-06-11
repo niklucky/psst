@@ -85,6 +85,8 @@ export function LoginPage() {
       encryptedPrivateKey: result.encryptedPrivateKey,
       privateKeyIv: result.privateKeyIv,
       publicKey: result.publicKey,
+      encryptedVaultKey: result.encryptedVaultKey,
+      vaultKeyIv: result.vaultKeyIv,
     });
 
     navigate({ to: '/' });
@@ -315,6 +317,12 @@ export function LoginPage() {
           >
             {passkeyStatus === 'authenticating' ? 'Waiting for passkey…' : '🔑 Sign in with a passkey'}
           </button>
+
+          <p className="text-center text-sm text-gray-500">
+            <Link to="/recover" className="text-indigo-600 hover:underline">
+              Forgot your password?
+            </Link>
+          </p>
 
           <p className="text-center text-sm text-gray-500">
             No account yet?{' '}
