@@ -314,6 +314,60 @@ describe('auth.me', () => {
   });
 });
 
+describe('auth.resendVerificationEmail', () => {
+  const session = { userId: 'user-uuid-1', sessionId: 'session-1' };
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.insert).mockReset();
+    vi.mocked(db.delete).mockReset();
+  });
+
+  it('throws BAD_REQUEST when the email is already verified', async () => {
+    vi.mocked(db.select).mockReturnValueOnce(
+      makeChain([{ email: 'alice@example.com', emailVerifiedAt: new Date() }]),
+    );
+
+    await expect(authedCaller(session).auth.resendVerificationEmail()).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+  });
+
+  it('throws TOO_MANY_REQUESTS when a verification email was sent recently', async () => {
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([{ email: 'alice@example.com', emailVerifiedAt: null }]))
+      .mockReturnValueOnce(makeChain([{ createdAt: new Date() }]));
+
+    await expect(authedCaller(session).auth.resendVerificationEmail()).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    });
+  });
+
+  it('sends a new verification email when the cooldown has elapsed', async () => {
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([{ email: 'alice@example.com', emailVerifiedAt: null }]))
+      .mockReturnValueOnce(makeChain([{ createdAt: new Date(Date.now() - 10 * 60 * 1000) }]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.resendVerificationEmail();
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('sends a verification email when none exists yet', async () => {
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([{ email: 'alice@example.com', emailVerifiedAt: null }]))
+      .mockReturnValueOnce(makeChain([]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.resendVerificationEmail();
+
+    expect(result).toEqual({ ok: true });
+  });
+});
+
 describe('auth.totpStatus / enroll / disable', () => {
   const session = { userId: 'user-uuid-1', sessionId: 'session-1' };
 

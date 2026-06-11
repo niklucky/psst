@@ -33,6 +33,9 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Email verification link lifetime: 24 hours */
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** Minimum time between "resend verification email" requests */
+const RESEND_VERIFICATION_COOLDOWN_MS = 5 * 60 * 1000;
+
 /** A login from a known device older than this requires step-up verification again */
 const STALE_LOGIN_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -643,6 +646,16 @@ export const authRouter = router({
 
     if (user.emailVerifiedAt) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: 'Email already verified' });
+    }
+
+    const [existing] = await db
+      .select({ createdAt: emailVerifications.createdAt })
+      .from(emailVerifications)
+      .where(eq(emailVerifications.userId, ctx.session.userId))
+      .limit(1);
+
+    if (existing && Date.now() - existing.createdAt.getTime() < RESEND_VERIFICATION_COOLDOWN_MS) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Please wait before requesting another email' });
     }
 
     await db.delete(emailVerifications).where(eq(emailVerifications.userId, ctx.session.userId));

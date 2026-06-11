@@ -34,13 +34,18 @@ function EmailVerificationSection({ verified }: { verified: boolean }) {
       {mutation.isSuccess ? (
         <span className="text-xs text-green-700 whitespace-nowrap">Email sent ✓</span>
       ) : (
-        <button
-          onClick={() => void mutation.mutateAsync()}
-          disabled={mutation.isPending}
-          className="rounded-lg bg-amber-600 text-white text-sm px-4 py-1.5 hover:bg-amber-700 disabled:opacity-50 whitespace-nowrap"
-        >
-          {mutation.isPending ? 'Sending…' : 'Resend email'}
-        </button>
+        <div className="text-right">
+          <button
+            onClick={() => void mutation.mutateAsync()}
+            disabled={mutation.isPending}
+            className="rounded-lg bg-amber-600 text-white text-sm px-4 py-1.5 hover:bg-amber-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            {mutation.isPending ? 'Sending…' : 'Resend email'}
+          </button>
+          {mutation.isError && (
+            <p className="mt-1 text-xs text-amber-700 whitespace-nowrap">{mutation.error.message}</p>
+          )}
+        </div>
       )}
     </section>
   );
