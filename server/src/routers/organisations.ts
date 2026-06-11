@@ -9,9 +9,11 @@ import {
   vaults,
   vaultMembers,
 } from '@psst/db';
+import { inviteEmail, sendEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod/v4';
+import { env } from '../env';
 import { protectedProcedure, router } from '../trpc';
 
 /** 7-day invite TTL */
@@ -103,9 +105,8 @@ export const organisationsRouter = router({
     }),
 
   /**
-   * Creates an invitation for an email address.
-   * In dev, the token is returned directly (no email sending yet).
-   * In production, this token would be emailed to the recipient.
+   * Creates an invitation for an email address and emails the recipient a link
+   * to accept it.
    */
   invite: protectedProcedure
     .input(
@@ -117,6 +118,20 @@ export const organisationsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       await requireOrgAccess(input.orgId, ctx.session.userId, ['owner', 'admin']);
+
+      const [org] = await db
+        .select({ name: organisations.name })
+        .from(organisations)
+        .where(eq(organisations.id, input.orgId))
+        .limit(1);
+
+      const [inviter] = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, ctx.session.userId))
+        .limit(1);
+
+      if (!org || !inviter) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
 
       const token = randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
@@ -133,8 +148,15 @@ export const organisationsRouter = router({
         })
         .returning({ id: invitations.id, token: invitations.token });
 
-      // TODO: send invite email via Resend in production
-      console.log(`[dev] Invite token for ${input.email}: ${token}`);
+      const inviteUrl = `${env.APP_URL}/invite/${token}`;
+      const { subject, html, text } = inviteEmail({
+        orgName: org.name,
+        inviterEmail: inviter.email,
+        inviteUrl,
+        role: input.role,
+      });
+
+      await sendEmail({ to: input.email.toLowerCase(), subject, html, text });
 
       return { invitationId: invite!.id, token };
     }),

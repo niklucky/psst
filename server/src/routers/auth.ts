@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import {
   db,
   sessions,
@@ -7,14 +7,43 @@ import {
   organisations,
   organisationMembers,
   vaultMembers,
+  emailVerifications,
+  knownDevices,
+  pendingAuthentications,
+  totpCredentials,
+  backupCodes,
 } from '@psst/db';
+import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { z } from 'zod/v4';
+import { env } from '../env';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
+import {
+  buildOtpauthUrl,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  generateTotpSecret,
+  verifyTotpCode,
+} from '../totp';
 
 /** Session lifetime: 30 days */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Email verification link lifetime: 24 hours */
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Minimum time between "resend verification email" requests */
+const RESEND_VERIFICATION_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** A login from a known device older than this requires step-up verification again */
+const STALE_LOGIN_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Step-up email code lifetime: 10 minutes */
+const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
+
+/** Max incorrect code attempts before the challenge is invalidated */
+const MAX_CODE_ATTEMPTS = 5;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -22,6 +51,113 @@ function hashToken(token: string): string {
 
 function generateSessionToken(): string {
   return randomBytes(32).toString('hex');
+}
+
+/** sha256 hex fingerprint of a device, derived from IP + User-Agent */
+function fingerprintDevice(ipAddress: string | null, userAgent: string | null): string {
+  return hashToken(`${ipAddress ?? ''}|${userAgent ?? ''}`);
+}
+
+/** Generates a 6-digit numeric one-time code. */
+function generateLoginCode(): string {
+  return randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+/** Generates a single-use 2FA backup code, formatted as `xxxxx-xxxxx`. */
+function generateBackupCode(): string {
+  const raw = randomBytes(5).toString('hex');
+  return `${raw.slice(0, 5)}-${raw.slice(5)}`;
+}
+
+/**
+ * Checks whether `code` matches an unused backup code for `userId`, marking
+ * it used if so. Returns whether the code was valid.
+ */
+async function consumeBackupCode(userId: string, code: string): Promise<boolean> {
+  const codeHash = hashToken(code.trim().toLowerCase());
+
+  const [match] = await db
+    .select({ id: backupCodes.id })
+    .from(backupCodes)
+    .where(and(eq(backupCodes.userId, userId), eq(backupCodes.codeHash, codeHash), isNull(backupCodes.usedAt)))
+    .limit(1);
+
+  if (!match) return false;
+
+  await db.update(backupCodes).set({ usedAt: new Date() }).where(eq(backupCodes.id, match.id));
+  return true;
+}
+
+interface UserCredentialRow {
+  userId: string;
+  argon2Salt: string;
+  encryptedVaultKey: string;
+  vaultKeyIv: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  privateKeyIv: string;
+}
+
+/**
+ * Issues a session for a user who has passed all required checks, and marks
+ * their device as known so future logins from it skip step-up verification.
+ */
+async function issueSession(
+  row: UserCredentialRow,
+  req: { ipAddress: string | null; userAgent: string | null },
+) {
+  const token = generateSessionToken();
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  await db.insert(sessions).values({
+    userId: row.userId,
+    tokenHash,
+    expiresAt,
+    ipAddress: req.ipAddress ?? undefined,
+    userAgent: req.userAgent ?? undefined,
+  });
+
+  const fingerprintHash = fingerprintDevice(req.ipAddress, req.userAgent);
+  await db
+    .insert(knownDevices)
+    .values({ userId: row.userId, fingerprintHash, lastSeenAt: new Date() })
+    .onConflictDoUpdate({
+      target: [knownDevices.userId, knownDevices.fingerprintHash],
+      set: { lastSeenAt: new Date() },
+    });
+
+  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, row.userId));
+
+  return {
+    challengeRequired: false as const,
+    sessionToken: token,
+    userId: row.userId,
+    expiresAt,
+    argon2Salt: row.argon2Salt,
+    encryptedVaultKey: row.encryptedVaultKey,
+    vaultKeyIv: row.vaultKeyIv,
+    publicKey: row.publicKey,
+    encryptedPrivateKey: row.encryptedPrivateKey,
+    privateKeyIv: row.privateKeyIv,
+  };
+}
+
+/**
+ * Creates a fresh email verification token for a user and emails them a
+ * welcome message containing the verification link.
+ */
+async function sendVerificationEmail(userId: string, email: string): Promise<void> {
+  const token = generateSessionToken();
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+
+  await db.insert(emailVerifications).values({ userId, tokenHash, expiresAt });
+
+  const verifyUrl = `${env.APP_URL}/verify-email/${token}`;
+  const { subject, html, text } = welcomeEmail({ verifyUrl });
+
+  await sendEmail({ to: email, subject, html, text });
 }
 
 export const authRouter = router({
@@ -66,7 +202,7 @@ export const authRouter = router({
         privateKeyIv: z.string().min(1),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
 
       // Check email not already taken
@@ -84,7 +220,7 @@ export const authRouter = router({
       const result = await db.transaction(async (tx) => {
         const [user] = await tx
           .insert(users)
-          .values({ email })
+          .values({ email, lastLoginAt: new Date() })
           .returning({ id: users.id });
 
         if (!user) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
@@ -123,13 +259,28 @@ export const authRouter = router({
 
         const [session] = await tx
           .insert(sessions)
-          .values({ userId: user.id, tokenHash, expiresAt })
+          .values({
+            userId: user.id,
+            tokenHash,
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
           .returning({ id: sessions.id });
 
         if (!session) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
 
+        // Registering from this device counts as a known device — no step-up
+        // challenge on the next login from the same browser/network.
+        await tx.insert(knownDevices).values({
+          userId: user.id,
+          fingerprintHash: fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent),
+        });
+
         return { token, sessionId: session.id, userId: user.id, expiresAt };
       });
+
+      await sendVerificationEmail(result.userId, email);
 
       return {
         sessionToken: result.token,
@@ -149,12 +300,13 @@ export const authRouter = router({
         authHash: z.string().min(1),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
 
       const [row] = await db
         .select({
           userId: users.id,
+          email: users.email,
           authHash: userCredentials.authHash,
           argon2Salt: userCredentials.argon2Salt,
           encryptedVaultKey: userCredentials.encryptedVaultKey,
@@ -162,9 +314,12 @@ export const authRouter = router({
           publicKey: userCredentials.publicKey,
           encryptedPrivateKey: userCredentials.encryptedPrivateKey,
           privateKeyIv: userCredentials.privateKeyIv,
+          lastLoginAt: users.lastLoginAt,
+          totpEnabledAt: totpCredentials.enabled,
         })
         .from(users)
         .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+        .leftJoin(totpCredentials, eq(totpCredentials.userId, users.id))
         .where(eq(users.email, email))
         .limit(1);
 
@@ -176,27 +331,167 @@ export const authRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
       }
 
-      const token = generateSessionToken();
-      const tokenHash = hashToken(token);
-      const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+      // 2FA: if TOTP is enabled, every login requires a code regardless of
+      // device/staleness — this takes priority over the email step-up check.
+      if (row.totpEnabledAt) {
+        const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
 
-      await db.insert(sessions).values({
-        userId: row.userId,
-        tokenHash,
-        expiresAt,
-      });
+        const [pending] = await db
+          .insert(pendingAuthentications)
+          .values({
+            userId: row.userId,
+            kind: 'totp',
+            codeHash: '',
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
+          .returning({ id: pendingAuthentications.id });
 
-      return {
-        sessionToken: token,
-        userId: row.userId,
-        expiresAt,
-        argon2Salt: row.argon2Salt,
-        encryptedVaultKey: row.encryptedVaultKey,
-        vaultKeyIv: row.vaultKeyIv,
-        publicKey: row.publicKey,
-        encryptedPrivateKey: row.encryptedPrivateKey,
-        privateKeyIv: row.privateKeyIv,
-      };
+        if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        return { challengeRequired: true as const, challengeId: pending.id };
+      }
+
+      // Step-up check: unknown device or stale last login requires an emailed code.
+      const fingerprintHash = fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent);
+      const [device] = await db
+        .select({ id: knownDevices.id })
+        .from(knownDevices)
+        .where(and(eq(knownDevices.userId, row.userId), eq(knownDevices.fingerprintHash, fingerprintHash)))
+        .limit(1);
+
+      const isStale = !row.lastLoginAt || Date.now() - row.lastLoginAt.getTime() > STALE_LOGIN_MS;
+
+      if (!device || isStale) {
+        const code = generateLoginCode();
+        const codeHash = hashToken(code);
+        const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
+
+        const [pending] = await db
+          .insert(pendingAuthentications)
+          .values({
+            userId: row.userId,
+            kind: 'email_code',
+            codeHash,
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
+          .returning({ id: pendingAuthentications.id });
+
+        if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        // Keep the challenge atomic: if the code can't be delivered the client
+        // never gets a challengeId and could never verify it, so drop the row
+        // we just wrote instead of leaving it to occupy a slot until expiry.
+        const { subject, html, text } = loginCodeEmail({ code });
+        try {
+          await sendEmail({ to: row.email, subject, html, text });
+        } catch (err) {
+          await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Could not send the verification code — please try again',
+            cause: err,
+          });
+        }
+
+        return { challengeRequired: true as const, challengeId: pending.id };
+      }
+
+      return issueSession(row, ctx.req);
+    }),
+
+  /**
+   * Completes a step-up email verification challenge issued by `login` and
+   * issues a session, exactly as a normal login would.
+   */
+  verifyLoginChallenge: publicProcedure
+    .input(
+      z.object({
+        challengeId: z.string().uuid(),
+        code: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [pending] = await db
+        .select()
+        .from(pendingAuthentications)
+        .where(eq(pendingAuthentications.id, input.challengeId))
+        .limit(1);
+
+      if (!pending || pending.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired code' });
+      }
+
+      // Bind the challenge to the device that originated it: the session (and
+      // the resulting trusted-device entry) must only ever be issued to the
+      // same IP + User-Agent that requested the code. Otherwise anyone who
+      // obtains the challengeId and code could complete it from their own
+      // device and have that device permanently trusted. Compared via
+      // fingerprintDevice so null IP/UA is handled consistently with knownDevices.
+      // Returns the same generic error — and intentionally touches no state — so
+      // a wrong-device submission neither leaks why nor burns the user's attempts.
+      if (
+        fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent) !==
+        fingerprintDevice(pending.ipAddress, pending.userAgent)
+      ) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired code' });
+      }
+
+      if (pending.attempts >= MAX_CODE_ATTEMPTS) {
+        await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Too many attempts — please log in again' });
+      }
+
+      let verified: boolean;
+
+      if (pending.kind === 'totp') {
+        const [cred] = await db
+          .select({ encryptedSecret: totpCredentials.encryptedSecret })
+          .from(totpCredentials)
+          .where(eq(totpCredentials.userId, pending.userId))
+          .limit(1);
+
+        verified = cred ? verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code) : false;
+
+        if (!verified) {
+          verified = await consumeBackupCode(pending.userId, input.code);
+        }
+      } else {
+        verified = hashToken(input.code) === pending.codeHash;
+      }
+
+      if (!verified) {
+        await db
+          .update(pendingAuthentications)
+          .set({ attempts: pending.attempts + 1 })
+          .where(eq(pendingAuthentications.id, pending.id));
+
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      const [row] = await db
+        .select({
+          userId: users.id,
+          argon2Salt: userCredentials.argon2Salt,
+          encryptedVaultKey: userCredentials.encryptedVaultKey,
+          vaultKeyIv: userCredentials.vaultKeyIv,
+          publicKey: userCredentials.publicKey,
+          encryptedPrivateKey: userCredentials.encryptedPrivateKey,
+          privateKeyIv: userCredentials.privateKeyIv,
+        })
+        .from(users)
+        .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+        .where(eq(users.id, pending.userId))
+        .limit(1);
+
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+
+      return issueSession(row, ctx.req);
     }),
 
   /**
@@ -226,7 +521,13 @@ export const authRouter = router({
         throw new TRPCError({ code: 'CONFLICT', message: 'Email already in use' });
       }
 
-      await db.update(users).set({ email, updatedAt: new Date() }).where(eq(users.id, ctx.session.userId));
+      await db
+        .update(users)
+        .set({ email, emailVerifiedAt: null, updatedAt: new Date() })
+        .where(eq(users.id, ctx.session.userId));
+
+      await db.delete(emailVerifications).where(eq(emailVerifications.userId, ctx.session.userId));
+      await sendVerificationEmail(ctx.session.userId, email);
 
       return { ok: true };
     }),
@@ -325,4 +626,177 @@ export const authRouter = router({
 
     return row;
   }),
+
+  /**
+   * Verifies an email address using the token from the welcome/verification email.
+   */
+  verifyEmail: publicProcedure
+    .input(z.object({ token: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const tokenHash = hashToken(input.token);
+
+      const [verification] = await db
+        .select()
+        .from(emailVerifications)
+        .where(
+          and(eq(emailVerifications.tokenHash, tokenHash), gt(emailVerifications.expiresAt, new Date())),
+        )
+        .limit(1);
+
+      if (!verification) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired verification link' });
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+          .where(eq(users.id, verification.userId));
+
+        await tx.delete(emailVerifications).where(eq(emailVerifications.userId, verification.userId));
+      });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Resends the email verification link to the current user.
+   */
+  resendVerificationEmail: protectedProcedure.mutation(async ({ ctx }) => {
+    const [user] = await db
+      .select({ email: users.email, emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, ctx.session.userId))
+      .limit(1);
+
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+    if (user.emailVerifiedAt) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Email already verified' });
+    }
+
+    const [existing] = await db
+      .select({ createdAt: emailVerifications.createdAt })
+      .from(emailVerifications)
+      .where(eq(emailVerifications.userId, ctx.session.userId))
+      .limit(1);
+
+    if (existing && Date.now() - existing.createdAt.getTime() < RESEND_VERIFICATION_COOLDOWN_MS) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Please wait before requesting another email' });
+    }
+
+    await db.delete(emailVerifications).where(eq(emailVerifications.userId, ctx.session.userId));
+    await sendVerificationEmail(ctx.session.userId, user.email);
+
+    return { ok: true };
+  }),
+
+  /**
+   * Returns whether the current user has TOTP-based 2FA enabled.
+   */
+  totpStatus: protectedProcedure.query(async ({ ctx }) => {
+    const [cred] = await db
+      .select({ enabled: totpCredentials.enabled })
+      .from(totpCredentials)
+      .where(eq(totpCredentials.userId, ctx.session.userId))
+      .limit(1);
+
+    return { enabled: !!cred?.enabled };
+  }),
+
+  /**
+   * Starts (or restarts) TOTP enrollment: generates a new secret, stores it
+   * encrypted with `enabled = null`, and returns it for QR/manual entry.
+   * 2FA is not active until `totpEnrollVerify` confirms a valid code.
+   */
+  totpEnrollStart: protectedProcedure.mutation(async ({ ctx }) => {
+    const [user] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, ctx.session.userId))
+      .limit(1);
+
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+    const secret = generateTotpSecret();
+    const encryptedSecret = encryptTotpSecret(secret);
+
+    await db
+      .insert(totpCredentials)
+      .values({ userId: ctx.session.userId, encryptedSecret })
+      .onConflictDoUpdate({
+        target: totpCredentials.userId,
+        set: { encryptedSecret, enabled: null },
+      });
+
+    return { secret, otpauthUrl: buildOtpauthUrl(secret, user.email) };
+  }),
+
+  /**
+   * Confirms TOTP enrollment with a code from the authenticator app, marks
+   * 2FA as enabled, and issues a fresh set of one-time backup codes.
+   */
+  totpEnrollVerify: protectedProcedure
+    .input(z.object({ code: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const [cred] = await db
+        .select()
+        .from(totpCredentials)
+        .where(eq(totpCredentials.userId, ctx.session.userId))
+        .limit(1);
+
+      if (!cred) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'No TOTP enrollment in progress' });
+      }
+
+      if (!verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code)) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      await db
+        .update(totpCredentials)
+        .set({ enabled: new Date() })
+        .where(eq(totpCredentials.userId, ctx.session.userId));
+
+      // Replace any previous backup codes with a fresh set, shown once.
+      await db.delete(backupCodes).where(eq(backupCodes.userId, ctx.session.userId));
+
+      const codes = Array.from({ length: 10 }, () => generateBackupCode());
+      await db
+        .insert(backupCodes)
+        .values(codes.map((code) => ({ userId: ctx.session.userId, codeHash: hashToken(code) })));
+
+      return { backupCodes: codes };
+    }),
+
+  /**
+   * Disables TOTP 2FA. Requires a valid current TOTP code or backup code to
+   * prevent a hijacked session from silently downgrading account security.
+   */
+  totpDisable: protectedProcedure
+    .input(z.object({ code: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const [cred] = await db
+        .select()
+        .from(totpCredentials)
+        .where(eq(totpCredentials.userId, ctx.session.userId))
+        .limit(1);
+
+      if (!cred || !cred.enabled) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '2FA is not enabled' });
+      }
+
+      const verified =
+        verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code) ||
+        (await consumeBackupCode(ctx.session.userId, input.code));
+
+      if (!verified) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      await db.delete(totpCredentials).where(eq(totpCredentials.userId, ctx.session.userId));
+      await db.delete(backupCodes).where(eq(backupCodes.userId, ctx.session.userId));
+
+      return { ok: true };
+    }),
 });

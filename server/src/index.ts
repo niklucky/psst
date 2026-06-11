@@ -6,6 +6,7 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
+import { getClientIp } from './client-ip';
 import { env } from './env';
 import { getSession, sessionMiddleware } from './middleware/session';
 import { appRouter } from './routers/index';
@@ -35,6 +36,10 @@ app.all('/api/trpc/*', async (c) => {
     createContext: () => ({
       db,
       session: getSession(c),
+      req: {
+        ipAddress: getClientIp(c),
+        userAgent: c.req.header('user-agent') ?? null,
+      },
     }),
   });
 });

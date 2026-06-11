@@ -31,11 +31,13 @@
     "@noble/hashes": "^2.2.0",
     "@psst/crypto": "workspace:*",
     "@psst/db": "workspace:*",
+    "@psst/email": "workspace:*",
     "@psst/shared": "workspace:*",
     "@trpc/server": "^11.17.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.22",
+    "otpauth": "^9.5.1",
     "pg": "^8.21.0",
     "zod": "^4.4.3"
   }

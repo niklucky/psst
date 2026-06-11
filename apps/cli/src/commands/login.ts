@@ -78,8 +78,21 @@ export function makeLoginCommand(): Command {
 
         // ── 5. Authenticate ───────────────────────────────────────────────────
         process.stdout.write('Authenticating… ');
-        const result = await api.auth.login.mutate({ email, authHash });
+        let result = await api.auth.login.mutate({ email, authHash });
         process.stdout.write('done\n');
+
+        // Step-up verification (new device, stale session, or 2FA) ─────────────
+        if (result.challengeRequired) {
+          const code = await promptInput('Verification code: ');
+          result = await api.auth.verifyLoginChallenge.mutate({
+            challengeId: result.challengeId,
+            code: code.trim(),
+          });
+        }
+
+        if (result.challengeRequired) {
+          throw new Error('Unexpected challenge response');
+        }
 
         // ── 6. Save minimal session so next API calls are authenticated ───────
         saveSession({

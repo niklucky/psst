@@ -5,6 +5,7 @@ import { SettingsLayout } from './components/layout/SettingsLayout';
 import { LoginPage } from './routes/login';
 import { RegisterPage } from './routes/register';
 import { UnlockPage } from './routes/unlock';
+import { VerifyEmailPage } from './routes/verify-email';
 import { VaultsPage } from './routes/vaults/index';
 import { VaultDetailPage } from './routes/vaults/$vaultId';
 import { VaultMembersPage } from './routes/vaults/$vaultId/members';
@@ -33,6 +34,12 @@ const unlockRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/unlock',
   component: UnlockPage,
+});
+
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/verify-email/$token',
+  component: VerifyEmailPage,
 });
 
 // ---- Authenticated app layout (pathless — wraps auth routes without owning a path) ----
@@ -108,6 +115,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
   unlockRoute,
+  verifyEmailRoute,
   appRoute.addChildren([
     indexRoute,
     vaultsRoute,
