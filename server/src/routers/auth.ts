@@ -12,10 +12,21 @@ import {
   pendingAuthentications,
   totpCredentials,
   backupCodes,
+  webauthnCredentials,
+  webauthnChallenges,
 } from '@psst/db';
 import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+  type RegistrationResponseJSON,
+  type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
+} from '@simplewebauthn/server';
+import { and, eq, gt, isNull, lt } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import { env } from '../env';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
@@ -26,6 +37,7 @@ import {
   generateTotpSecret,
   verifyTotpCode,
 } from '../totp';
+import { origin, rpID, rpName, WEBAUTHN_CHALLENGE_TTL_MS } from '../webauthn';
 
 /** Session lifetime: 30 days */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -88,6 +100,64 @@ async function consumeBackupCode(userId: string, code: string): Promise<boolean>
   return true;
 }
 
+/**
+ * If the request comes from an unknown device or the user's last login is stale,
+ * creates an `email_code` pending authentication, emails the code, and returns
+ * its challengeId. Returns null when the device is known and recent — no step-up
+ * needed. Shared by password login and passkey login so every login method runs
+ * the same device/location risk check.
+ */
+async function maybeEmailStepUp(
+  user: { userId: string; email: string; lastLoginAt: Date | null },
+  req: { ipAddress: string | null; userAgent: string | null },
+): Promise<string | null> {
+  const fingerprintHash = fingerprintDevice(req.ipAddress, req.userAgent);
+  const [device] = await db
+    .select({ id: knownDevices.id })
+    .from(knownDevices)
+    .where(and(eq(knownDevices.userId, user.userId), eq(knownDevices.fingerprintHash, fingerprintHash)))
+    .limit(1);
+
+  const isStale = !user.lastLoginAt || Date.now() - user.lastLoginAt.getTime() > STALE_LOGIN_MS;
+
+  if (device && !isStale) return null;
+
+  const code = generateLoginCode();
+  const codeHash = hashToken(code);
+  const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
+
+  const [pending] = await db
+    .insert(pendingAuthentications)
+    .values({
+      userId: user.userId,
+      kind: 'email_code',
+      codeHash,
+      expiresAt,
+      ipAddress: req.ipAddress ?? undefined,
+      userAgent: req.userAgent ?? undefined,
+    })
+    .returning({ id: pendingAuthentications.id });
+
+  if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+  // Keep the challenge atomic: if the code can't be delivered the client never
+  // gets a challengeId and could never verify it, so drop the row we just wrote
+  // instead of leaving it to occupy a slot until expiry.
+  const { subject, html, text } = loginCodeEmail({ code });
+  try {
+    await sendEmail({ to: user.email, subject, html, text });
+  } catch (err) {
+    await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Could not send the verification code — please try again',
+      cause: err,
+    });
+  }
+
+  return pending.id;
+}
+
 interface UserCredentialRow {
   userId: string;
   argon2Salt: string;
@@ -96,6 +166,39 @@ interface UserCredentialRow {
   publicKey: string;
   encryptedPrivateKey: string;
   privateKeyIv: string;
+}
+
+/** Loads the credential blobs `issueSession` needs for a user by id. */
+async function loadCredentialRow(userId: string): Promise<UserCredentialRow | undefined> {
+  const [row] = await db
+    .select({
+      userId: users.id,
+      argon2Salt: userCredentials.argon2Salt,
+      encryptedVaultKey: userCredentials.encryptedVaultKey,
+      vaultKeyIv: userCredentials.vaultKeyIv,
+      publicKey: userCredentials.publicKey,
+      encryptedPrivateKey: userCredentials.encryptedPrivateKey,
+      privateKeyIv: userCredentials.privateKeyIv,
+    })
+    .from(users)
+    .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return row;
+}
+
+/** base64url-encode raw bytes (WebAuthn public keys are stored this way). */
+function toBase64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+/** Decode a base64url string back to bytes (backed by a plain ArrayBuffer). */
+function fromBase64Url(str: string): Uint8Array<ArrayBuffer> {
+  const buf = Buffer.from(str, 'base64url');
+  const bytes = new Uint8Array(buf.byteLength);
+  bytes.set(buf);
+  return bytes;
 }
 
 /**
@@ -354,50 +457,13 @@ export const authRouter = router({
       }
 
       // Step-up check: unknown device or stale last login requires an emailed code.
-      const fingerprintHash = fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent);
-      const [device] = await db
-        .select({ id: knownDevices.id })
-        .from(knownDevices)
-        .where(and(eq(knownDevices.userId, row.userId), eq(knownDevices.fingerprintHash, fingerprintHash)))
-        .limit(1);
+      const challengeId = await maybeEmailStepUp(
+        { userId: row.userId, email: row.email, lastLoginAt: row.lastLoginAt },
+        ctx.req,
+      );
 
-      const isStale = !row.lastLoginAt || Date.now() - row.lastLoginAt.getTime() > STALE_LOGIN_MS;
-
-      if (!device || isStale) {
-        const code = generateLoginCode();
-        const codeHash = hashToken(code);
-        const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
-
-        const [pending] = await db
-          .insert(pendingAuthentications)
-          .values({
-            userId: row.userId,
-            kind: 'email_code',
-            codeHash,
-            expiresAt,
-            ipAddress: ctx.req.ipAddress ?? undefined,
-            userAgent: ctx.req.userAgent ?? undefined,
-          })
-          .returning({ id: pendingAuthentications.id });
-
-        if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-
-        // Keep the challenge atomic: if the code can't be delivered the client
-        // never gets a challengeId and could never verify it, so drop the row
-        // we just wrote instead of leaving it to occupy a slot until expiry.
-        const { subject, html, text } = loginCodeEmail({ code });
-        try {
-          await sendEmail({ to: row.email, subject, html, text });
-        } catch (err) {
-          await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'Could not send the verification code — please try again',
-            cause: err,
-          });
-        }
-
-        return { challengeRequired: true as const, challengeId: pending.id };
+      if (challengeId) {
+        return { challengeRequired: true as const, challengeId };
       }
 
       return issueSession(row, ctx.req);
@@ -472,20 +538,7 @@ export const authRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
       }
 
-      const [row] = await db
-        .select({
-          userId: users.id,
-          argon2Salt: userCredentials.argon2Salt,
-          encryptedVaultKey: userCredentials.encryptedVaultKey,
-          vaultKeyIv: userCredentials.vaultKeyIv,
-          publicKey: userCredentials.publicKey,
-          encryptedPrivateKey: userCredentials.encryptedPrivateKey,
-          privateKeyIv: userCredentials.privateKeyIv,
-        })
-        .from(users)
-        .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
-        .where(eq(users.id, pending.userId))
-        .limit(1);
+      const row = await loadCredentialRow(pending.userId);
 
       if (!row) throw new TRPCError({ code: 'NOT_FOUND' });
 
@@ -798,5 +851,275 @@ export const authRouter = router({
       await db.delete(backupCodes).where(eq(backupCodes.userId, ctx.session.userId));
 
       return { ok: true };
+    }),
+
+  // ─── WebAuthn / Passkeys (stage 5) ─────────────────────────────────────────
+
+  /**
+   * Lists the current user's registered passkeys (for the settings UI).
+   */
+  webauthnCredentials: protectedProcedure.query(async ({ ctx }) => {
+    return db
+      .select({
+        id: webauthnCredentials.id,
+        name: webauthnCredentials.name,
+        createdAt: webauthnCredentials.createdAt,
+        lastUsedAt: webauthnCredentials.lastUsedAt,
+      })
+      .from(webauthnCredentials)
+      .where(eq(webauthnCredentials.userId, ctx.session.userId));
+  }),
+
+  /**
+   * Begins passkey registration: generates WebAuthn creation options, stores the
+   * challenge server-side, and returns the options for `startRegistration()`.
+   */
+  webauthnRegisterOptions: protectedProcedure.mutation(async ({ ctx }) => {
+    const [user] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, ctx.session.userId))
+      .limit(1);
+
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+    const existing = await db
+      .select({
+        credentialId: webauthnCredentials.credentialId,
+        transports: webauthnCredentials.transports,
+      })
+      .from(webauthnCredentials)
+      .where(eq(webauthnCredentials.userId, ctx.session.userId));
+
+    const options = await generateRegistrationOptions({
+      rpName,
+      rpID,
+      // Stable per-user handle — returned as `userHandle` on discoverable login.
+      userID: new TextEncoder().encode(ctx.session.userId),
+      userName: user.email,
+      userDisplayName: user.email,
+      attestationType: 'none',
+      // Don't let the same authenticator enroll twice.
+      excludeCredentials: existing.map((c) => ({
+        id: c.credentialId,
+        transports: c.transports
+          ? (JSON.parse(c.transports) as AuthenticatorTransportFuture[])
+          : undefined,
+      })),
+      authenticatorSelection: {
+        // Require a discoverable (resident) credential so login needs no username.
+        residentKey: 'required',
+        userVerification: 'preferred',
+      },
+    });
+
+    const expiresAt = new Date(Date.now() + WEBAUTHN_CHALLENGE_TTL_MS);
+    const [challenge] = await db
+      .insert(webauthnChallenges)
+      .values({ userId: ctx.session.userId, challenge: options.challenge, expiresAt })
+      .returning({ id: webauthnChallenges.id });
+
+    if (!challenge) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+    return { challengeId: challenge.id, options };
+  }),
+
+  /**
+   * Completes passkey registration: verifies the attestation against the stored
+   * challenge and persists the credential.
+   */
+  webauthnRegisterVerify: protectedProcedure
+    .input(
+      z.object({
+        challengeId: z.string().uuid(),
+        response: z.custom<RegistrationResponseJSON>((v) => typeof v === 'object' && v !== null),
+        name: z.string().max(100).optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [challenge] = await db
+        .select()
+        .from(webauthnChallenges)
+        .where(eq(webauthnChallenges.id, input.challengeId))
+        .limit(1);
+
+      if (!challenge || challenge.userId !== ctx.session.userId || challenge.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired challenge' });
+      }
+
+      // The challenge is single-use regardless of outcome.
+      await db.delete(webauthnChallenges).where(eq(webauthnChallenges.id, challenge.id));
+
+      let verification;
+      try {
+        verification = await verifyRegistrationResponse({
+          response: input.response,
+          expectedChallenge: challenge.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+        });
+      } catch (err) {
+        console.error('[webauthn] registration verify failed:', err, {
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+        });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Passkey registration failed', cause: err });
+      }
+
+      if (!verification.verified || !verification.registrationInfo) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Passkey registration failed' });
+      }
+
+      const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+
+      await db.insert(webauthnCredentials).values({
+        userId: ctx.session.userId,
+        credentialId: credential.id,
+        publicKey: toBase64Url(credential.publicKey),
+        counter: credential.counter,
+        transports: credential.transports ? JSON.stringify(credential.transports) : null,
+        deviceType: credentialDeviceType,
+        backedUp: credentialBackedUp,
+        name: input.name?.trim() || null,
+      });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Removes a registered passkey.
+   */
+  webauthnDeleteCredential: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .delete(webauthnCredentials)
+        .where(and(eq(webauthnCredentials.id, input.id), eq(webauthnCredentials.userId, ctx.session.userId)));
+
+      return { ok: true };
+    }),
+
+  /**
+   * Begins a usernameless passkey login: generates authentication options with
+   * an empty allow-list (relying on discoverable credentials) and stores the
+   * challenge for verification.
+   */
+  webauthnLoginOptions: publicProcedure.mutation(async () => {
+    const options = await generateAuthenticationOptions({
+      rpID,
+      userVerification: 'preferred',
+      // Empty allowCredentials → the browser offers any discoverable passkey for
+      // this RP, so we don't need the email up front.
+    });
+
+    // Opportunistically prune expired challenges so the table doesn't grow.
+    await db.delete(webauthnChallenges).where(lt(webauthnChallenges.expiresAt, new Date()));
+
+    const expiresAt = new Date(Date.now() + WEBAUTHN_CHALLENGE_TTL_MS);
+    const [challenge] = await db
+      .insert(webauthnChallenges)
+      .values({ userId: null, challenge: options.challenge, expiresAt })
+      .returning({ id: webauthnChallenges.id });
+
+    if (!challenge) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+    return { challengeId: challenge.id, options };
+  }),
+
+  /**
+   * Verifies a passkey assertion and issues a session — the same session-issuance
+   * path as password login. Auth-only: the response carries no key material, so
+   * the client lands on `/unlock` and still derives the master key from the
+   * password. Runs the stage-3 device step-up too (passkeys are exempt from TOTP).
+   */
+  webauthnLoginVerify: publicProcedure
+    .input(
+      z.object({
+        challengeId: z.string().uuid(),
+        response: z.custom<AuthenticationResponseJSON>((v) => typeof v === 'object' && v !== null),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [challenge] = await db
+        .select()
+        .from(webauthnChallenges)
+        .where(eq(webauthnChallenges.id, input.challengeId))
+        .limit(1);
+
+      if (!challenge || challenge.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired challenge' });
+      }
+
+      // The challenge is single-use regardless of outcome.
+      await db.delete(webauthnChallenges).where(eq(webauthnChallenges.id, challenge.id));
+
+      // Resolve the credential from the assertion's credential ID.
+      const [cred] = await db
+        .select()
+        .from(webauthnCredentials)
+        .where(eq(webauthnCredentials.credentialId, input.response.id))
+        .limit(1);
+
+      if (!cred) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Unknown passkey' });
+      }
+
+      let verification;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: input.response,
+          expectedChallenge: challenge.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+          credential: {
+            id: cred.credentialId,
+            publicKey: fromBase64Url(cred.publicKey),
+            counter: cred.counter,
+            transports: cred.transports
+              ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[])
+              : undefined,
+          },
+        });
+      } catch (err) {
+        console.error('[webauthn] authentication verify failed:', err, {
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+        });
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Passkey verification failed', cause: err });
+      }
+
+      if (!verification.verified) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Passkey verification failed' });
+      }
+
+      // Advance the signature counter to detect cloned authenticators.
+      await db
+        .update(webauthnCredentials)
+        .set({ counter: verification.authenticationInfo.newCounter, lastUsedAt: new Date() })
+        .where(eq(webauthnCredentials.id, cred.id));
+
+      const [user] = await db
+        .select({ email: users.email, lastLoginAt: users.lastLoginAt })
+        .from(users)
+        .where(eq(users.id, cred.userId))
+        .limit(1);
+
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Same device/location step-up as password login — one risk check across
+      // all login methods. Passkeys skip TOTP, so only the email code applies.
+      const stepUpChallengeId = await maybeEmailStepUp(
+        { userId: cred.userId, email: user.email, lastLoginAt: user.lastLoginAt },
+        ctx.req,
+      );
+
+      if (stepUpChallengeId) {
+        return { challengeRequired: true as const, challengeId: stepUpChallengeId };
+      }
+
+      const row = await loadCredentialRow(cred.userId);
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      return issueSession(row, ctx.req);
     }),
 });

@@ -1,5 +1,6 @@
 import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey } from '@psst/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -36,9 +37,10 @@ interface LoginResult {
 export function LoginPage() {
   usePageTitle('Sign in');
   const navigate = useNavigate();
-  const { setSession, lockedToken } = useKeyVault();
+  const { setSession, lockedToken, beginLockedSession } = useKeyVault();
   const [status, setStatus] = useState<'idle' | 'fetching-salt' | 'deriving' | 'submitting' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [passkeyStatus, setPasskeyStatus] = useState<'idle' | 'authenticating'>('idle');
 
   // Step-up challenge state — set when the server requires an emailed code.
   const [challengeId, setChallengeId] = useState<string | null>(null);
@@ -133,8 +135,37 @@ export function LoginPage() {
     }
   };
 
+  // Passkey login is auth-only: it creates a session without the master password,
+  // so we land on /unlock to derive the encryption key — exactly like a reload.
+  const onPasskeyLogin = async () => {
+    try {
+      setPasskeyStatus('authenticating');
+      setErrorMsg('');
+
+      const { challengeId: cid, options } = await trpcClient.auth.webauthnLoginOptions.mutate();
+      const response = await startAuthentication({ optionsJSON: options });
+      const result = await trpcClient.auth.webauthnLoginVerify.mutate({ challengeId: cid, response });
+
+      if (result.challengeRequired) {
+        // Passkey synced to an unrecognized device → email step-up. No master
+        // key in this flow, so onSubmitCode routes to /unlock once verified.
+        setChallengeId(result.challengeId);
+        setPasskeyStatus('idle');
+        return;
+      }
+
+      beginLockedSession(result.sessionToken);
+      void navigate({ to: '/unlock' });
+    } catch (err) {
+      setPasskeyStatus('idle');
+      setStatus('error');
+      setErrorMsg('Passkey sign-in failed or was cancelled.');
+      console.error(err);
+    }
+  };
+
   const onSubmitCode = async (values: CodeFormValues) => {
-    if (!challengeId || !masterKey) return;
+    if (!challengeId) return;
 
     try {
       setCodeStatus('verifying');
@@ -150,7 +181,14 @@ export function LoginPage() {
         throw new Error('Unexpected challenge response');
       }
 
-      finishLogin(result, masterKey);
+      if (masterKey) {
+        // Password login: we already derived the key — finish unlocking now.
+        finishLogin(result, masterKey);
+      } else {
+        // Passkey login: no master key yet — go to /unlock for the password.
+        beginLockedSession(result.sessionToken);
+        void navigate({ to: '/unlock' });
+      }
     } catch (err) {
       setCodeStatus('error');
       setCodeErrorMsg('Incorrect or expired code. Please try again.');
@@ -261,6 +299,21 @@ export function LoginPage() {
                 : status === 'submitting'
                   ? 'Signing in…'
                   : 'Sign in'}
+          </button>
+
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-gray-200" />
+            <span className="text-xs uppercase tracking-wider text-gray-400">or</span>
+            <span className="h-px flex-1 bg-gray-200" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void onPasskeyLogin()}
+            disabled={isLoading || passkeyStatus === 'authenticating'}
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {passkeyStatus === 'authenticating' ? 'Waiting for passkey…' : '🔑 Sign in with a passkey'}
           </button>
 
           <p className="text-center text-sm text-gray-500">
