@@ -7,8 +7,9 @@ import {
   wrapPrivateKey,
   wrapVaultKey,
 } from '@psst/crypto';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import QRCode from 'qrcode';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';
 import { encodeSaltField } from '../../utils/auth';
@@ -233,6 +234,204 @@ function ChangePasswordSection() {
   );
 }
 
+// ── Two-Factor Authentication ──────────────────────────────────────────────
+
+function TotpEnrollment({ onDone }: { onDone: () => void }) {
+  const utils = trpc.useUtils();
+  const startMutation = trpc.auth.totpEnrollStart.useMutation();
+  const verifyMutation = trpc.auth.totpEnrollVerify.useMutation();
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [secret, setSecret] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    defaultValues: { code: '' },
+  });
+
+  useEffect(() => {
+    void (async () => {
+      const result = await startMutation.mutateAsync();
+      setSecret(result.secret);
+      setQrDataUrl(await QRCode.toDataURL(result.otpauthUrl));
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onSubmit = handleSubmit(async ({ code }) => {
+    const result = await verifyMutation.mutateAsync({ code: code.trim() });
+    setBackupCodes(result.backupCodes);
+    void utils.auth.totpStatus.invalidate();
+  });
+
+  if (backupCodes) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-green-700 bg-green-50 rounded px-3 py-2">
+          Two-factor authentication is enabled ✓
+        </p>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+            Backup codes — save these now, they won't be shown again
+          </p>
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm">
+            {backupCodes.map((c) => (
+              <span key={c}>{c}</span>
+            ))}
+          </div>
+        </div>
+        <button
+          onClick={onDone}
+          className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 max-w-sm">
+      {qrDataUrl ? (
+        <img src={qrDataUrl} alt="2FA QR code" className="rounded-lg border border-gray-200" width={200} height={200} />
+      ) : (
+        <div className="h-[200px] w-[200px] rounded-lg bg-gray-100 animate-pulse" />
+      )}
+      {secret && (
+        <p className="text-xs text-gray-500">
+          Or enter this key manually: <span className="font-mono text-gray-900">{secret}</span>
+        </p>
+      )}
+      <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+            Code from your authenticator app
+          </label>
+          <input
+            {...register('code', { required: 'Required' })}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          {errors.code && <p className="mt-1 text-xs text-red-600">{errors.code.message}</p>}
+        </div>
+        {verifyMutation.isError && (
+          <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">Incorrect code. Please try again.</p>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={verifyMutation.isPending}
+            className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {verifyMutation.isPending ? 'Verifying…' : 'Enable 2FA'}
+          </button>
+          <button
+            type="button"
+            onClick={onDone}
+            className="rounded-lg border border-gray-200 text-sm text-gray-600 px-4 py-1.5 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TotpDisable({ onDone }: { onDone: () => void }) {
+  const utils = trpc.useUtils();
+  const mutation = trpc.auth.totpDisable.useMutation({
+    onSuccess: () => {
+      void utils.auth.totpStatus.invalidate();
+      onDone();
+    },
+  });
+
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    defaultValues: { code: '' },
+  });
+
+  const onSubmit = handleSubmit(async ({ code }) => {
+    await mutation.mutateAsync({ code: code.trim() });
+  });
+
+  return (
+    <form onSubmit={(e) => void onSubmit(e)} className="space-y-3 max-w-sm">
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+          Enter a code from your authenticator app or a backup code to disable 2FA
+        </label>
+        <input
+          {...register('code', { required: 'Required' })}
+          type="text"
+          autoComplete="one-time-code"
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        {errors.code && <p className="mt-1 text-xs text-red-600">{errors.code.message}</p>}
+      </div>
+      {mutation.isError && (
+        <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">Incorrect code. Please try again.</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="rounded-lg bg-red-600 text-white text-sm px-4 py-1.5 hover:bg-red-700 disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Disabling…' : 'Disable 2FA'}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="rounded-lg border border-gray-200 text-sm text-gray-600 px-4 py-1.5 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function TwoFactorSection() {
+  const { data, isLoading } = trpc.auth.totpStatus.useQuery();
+  const [mode, setMode] = useState<'idle' | 'enroll' | 'disable'>('idle');
+
+  if (isLoading) return null;
+
+  return (
+    <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Two-factor authentication</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Require a code from an authenticator app when signing in.
+      </p>
+
+      {mode === 'enroll' && <TotpEnrollment onDone={() => setMode('idle')} />}
+      {mode === 'disable' && <TotpDisable onDone={() => setMode('idle')} />}
+
+      {mode === 'idle' && (
+        data?.enabled ? (
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-green-700">2FA is enabled ✓</span>
+            <button
+              onClick={() => setMode('disable')}
+              className="rounded-lg border border-red-300 text-red-700 text-sm px-4 py-1.5 hover:bg-red-50"
+            >
+              Disable
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setMode('enroll')}
+            className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700"
+          >
+            Enable 2FA
+          </button>
+        )
+      )}
+    </section>
+  );
+}
+
 // ── Delete Account ─────────────────────────────────────────────────────────
 
 function DeleteAccountSection() {
@@ -308,6 +507,7 @@ export function ProfileSettingsPage() {
       <EmailVerificationSection verified={!!me?.emailVerifiedAt} />
       <ChangeEmailSection currentEmail={me?.email ?? ''} />
       <ChangePasswordSection />
+      <TwoFactorSection />
       <DeleteAccountSection />
     </div>
   );

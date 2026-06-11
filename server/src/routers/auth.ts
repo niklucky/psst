@@ -10,13 +10,22 @@ import {
   emailVerifications,
   knownDevices,
   pendingAuthentications,
+  totpCredentials,
+  backupCodes,
 } from '@psst/db';
 import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import { env } from '../env';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
+import {
+  buildOtpauthUrl,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  generateTotpSecret,
+  verifyTotpCode,
+} from '../totp';
 
 /** Session lifetime: 30 days */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -49,6 +58,31 @@ function fingerprintDevice(ipAddress: string | null, userAgent: string | null): 
 /** Generates a 6-digit numeric one-time code. */
 function generateLoginCode(): string {
   return randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+/** Generates a single-use 2FA backup code, formatted as `xxxxx-xxxxx`. */
+function generateBackupCode(): string {
+  const raw = randomBytes(5).toString('hex');
+  return `${raw.slice(0, 5)}-${raw.slice(5)}`;
+}
+
+/**
+ * Checks whether `code` matches an unused backup code for `userId`, marking
+ * it used if so. Returns whether the code was valid.
+ */
+async function consumeBackupCode(userId: string, code: string): Promise<boolean> {
+  const codeHash = hashToken(code.trim().toLowerCase());
+
+  const [match] = await db
+    .select({ id: backupCodes.id })
+    .from(backupCodes)
+    .where(and(eq(backupCodes.userId, userId), eq(backupCodes.codeHash, codeHash), isNull(backupCodes.usedAt)))
+    .limit(1);
+
+  if (!match) return false;
+
+  await db.update(backupCodes).set({ usedAt: new Date() }).where(eq(backupCodes.id, match.id));
+  return true;
 }
 
 interface UserCredentialRow {
@@ -278,9 +312,11 @@ export const authRouter = router({
           encryptedPrivateKey: userCredentials.encryptedPrivateKey,
           privateKeyIv: userCredentials.privateKeyIv,
           lastLoginAt: users.lastLoginAt,
+          totpEnabledAt: totpCredentials.enabled,
         })
         .from(users)
         .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+        .leftJoin(totpCredentials, eq(totpCredentials.userId, users.id))
         .where(eq(users.email, email))
         .limit(1);
 
@@ -290,6 +326,28 @@ export const authRouter = router({
 
       if (!row || !matches) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
+      }
+
+      // 2FA: if TOTP is enabled, every login requires a code regardless of
+      // device/staleness — this takes priority over the email step-up check.
+      if (row.totpEnabledAt) {
+        const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
+
+        const [pending] = await db
+          .insert(pendingAuthentications)
+          .values({
+            userId: row.userId,
+            kind: 'totp',
+            codeHash: '',
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
+          .returning({ id: pendingAuthentications.id });
+
+        if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        return { challengeRequired: true as const, challengeId: pending.id };
       }
 
       // Step-up check: unknown device or stale last login requires an emailed code.
@@ -345,9 +403,7 @@ export const authRouter = router({
       const [pending] = await db
         .select()
         .from(pendingAuthentications)
-        .where(
-          and(eq(pendingAuthentications.id, input.challengeId), eq(pendingAuthentications.kind, 'email_code')),
-        )
+        .where(eq(pendingAuthentications.id, input.challengeId))
         .limit(1);
 
       if (!pending || pending.expiresAt < new Date()) {
@@ -359,7 +415,25 @@ export const authRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Too many attempts — please log in again' });
       }
 
-      if (hashToken(input.code) !== pending.codeHash) {
+      let verified: boolean;
+
+      if (pending.kind === 'totp') {
+        const [cred] = await db
+          .select({ encryptedSecret: totpCredentials.encryptedSecret })
+          .from(totpCredentials)
+          .where(eq(totpCredentials.userId, pending.userId))
+          .limit(1);
+
+        verified = cred ? verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code) : false;
+
+        if (!verified) {
+          verified = await consumeBackupCode(pending.userId, input.code);
+        }
+      } else {
+        verified = hashToken(input.code) === pending.codeHash;
+      }
+
+      if (!verified) {
         await db
           .update(pendingAuthentications)
           .set({ attempts: pending.attempts + 1 })
@@ -576,4 +650,113 @@ export const authRouter = router({
 
     return { ok: true };
   }),
+
+  /**
+   * Returns whether the current user has TOTP-based 2FA enabled.
+   */
+  totpStatus: protectedProcedure.query(async ({ ctx }) => {
+    const [cred] = await db
+      .select({ enabled: totpCredentials.enabled })
+      .from(totpCredentials)
+      .where(eq(totpCredentials.userId, ctx.session.userId))
+      .limit(1);
+
+    return { enabled: !!cred?.enabled };
+  }),
+
+  /**
+   * Starts (or restarts) TOTP enrollment: generates a new secret, stores it
+   * encrypted with `enabled = null`, and returns it for QR/manual entry.
+   * 2FA is not active until `totpEnrollVerify` confirms a valid code.
+   */
+  totpEnrollStart: protectedProcedure.mutation(async ({ ctx }) => {
+    const [user] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, ctx.session.userId))
+      .limit(1);
+
+    if (!user) throw new TRPCError({ code: 'NOT_FOUND' });
+
+    const secret = generateTotpSecret();
+    const encryptedSecret = encryptTotpSecret(secret);
+
+    await db
+      .insert(totpCredentials)
+      .values({ userId: ctx.session.userId, encryptedSecret })
+      .onConflictDoUpdate({
+        target: totpCredentials.userId,
+        set: { encryptedSecret, enabled: null },
+      });
+
+    return { secret, otpauthUrl: buildOtpauthUrl(secret, user.email) };
+  }),
+
+  /**
+   * Confirms TOTP enrollment with a code from the authenticator app, marks
+   * 2FA as enabled, and issues a fresh set of one-time backup codes.
+   */
+  totpEnrollVerify: protectedProcedure
+    .input(z.object({ code: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const [cred] = await db
+        .select()
+        .from(totpCredentials)
+        .where(eq(totpCredentials.userId, ctx.session.userId))
+        .limit(1);
+
+      if (!cred) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'No TOTP enrollment in progress' });
+      }
+
+      if (!verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code)) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      await db
+        .update(totpCredentials)
+        .set({ enabled: new Date() })
+        .where(eq(totpCredentials.userId, ctx.session.userId));
+
+      // Replace any previous backup codes with a fresh set, shown once.
+      await db.delete(backupCodes).where(eq(backupCodes.userId, ctx.session.userId));
+
+      const codes = Array.from({ length: 10 }, () => generateBackupCode());
+      await db
+        .insert(backupCodes)
+        .values(codes.map((code) => ({ userId: ctx.session.userId, codeHash: hashToken(code) })));
+
+      return { backupCodes: codes };
+    }),
+
+  /**
+   * Disables TOTP 2FA. Requires a valid current TOTP code or backup code to
+   * prevent a hijacked session from silently downgrading account security.
+   */
+  totpDisable: protectedProcedure
+    .input(z.object({ code: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const [cred] = await db
+        .select()
+        .from(totpCredentials)
+        .where(eq(totpCredentials.userId, ctx.session.userId))
+        .limit(1);
+
+      if (!cred || !cred.enabled) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: '2FA is not enabled' });
+      }
+
+      const verified =
+        verifyTotpCode(decryptTotpSecret(cred.encryptedSecret), input.code) ||
+        (await consumeBackupCode(ctx.session.userId, input.code));
+
+      if (!verified) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      await db.delete(totpCredentials).where(eq(totpCredentials.userId, ctx.session.userId));
+      await db.delete(backupCodes).where(eq(backupCodes.userId, ctx.session.userId));
+
+      return { ok: true };
+    }),
 });

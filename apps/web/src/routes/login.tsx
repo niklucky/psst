@@ -165,9 +165,9 @@ export function LoginPage() {
       <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-md space-y-6">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">Check your email</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Verification required</h1>
             <p className="mt-2 text-sm text-gray-500">
-              We sent a verification code to your email — enter it below to finish signing in.
+              Enter the code from your email or authenticator app (or a backup code) to finish signing in.
             </p>
           </div>
 

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { Secret, TOTP } from 'otpauth';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { encryptTotpSecret } from '../totp';
 
 vi.mock('@psst/db', () => ({
   db: {
@@ -26,6 +28,8 @@ vi.mock('@psst/db', () => ({
   emailVerifications: {},
   knownDevices: { userId: 'userId', fingerprintHash: 'fingerprintHash' },
   pendingAuthentications: { id: 'id', kind: 'kind' },
+  totpCredentials: { userId: 'userId', enabled: 'enabled' },
+  backupCodes: { id: 'id', userId: 'userId', codeHash: 'codeHash', usedAt: 'usedAt' },
 }));
 
 vi.mock('@psst/email', () => ({
@@ -53,6 +57,7 @@ function makeChain(result: unknown[] = []): any {
   const chain: any = {};
   chain.from = vi.fn().mockReturnValue(chain);
   chain.innerJoin = vi.fn().mockReturnValue(chain);
+  chain.leftJoin = vi.fn().mockReturnValue(chain);
   chain.where = vi.fn().mockReturnValue(chain);
   chain.limit = vi.fn().mockResolvedValue(result);
   chain.values = vi.fn().mockReturnValue(chain);
@@ -306,5 +311,190 @@ describe('auth.me', () => {
     await expect(
       authedCaller({ userId: 'ghost', sessionId: 'session-1' }).auth.me(),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+describe('auth.totpStatus / enroll / disable', () => {
+  const session = { userId: 'user-uuid-1', sessionId: 'session-1' };
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.insert).mockReset();
+    vi.mocked(db.update).mockReset();
+    vi.mocked(db.delete).mockReset();
+  });
+
+  it('totpStatus returns false when no credential row exists', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.totpStatus();
+
+    expect(result).toEqual({ enabled: false });
+  });
+
+  it('totpStatus returns true when enabled is set', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([{ enabled: new Date() }]));
+
+    const result = await authedCaller(session).auth.totpStatus();
+
+    expect(result).toEqual({ enabled: true });
+  });
+
+  it('totpEnrollStart generates a secret and otpauth URL', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([{ email: 'alice@example.com' }]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.totpEnrollStart();
+
+    expect(result.secret).toMatch(/^[A-Z2-7]+$/);
+    expect(result.otpauthUrl).toContain('otpauth://totp/');
+    expect(result.otpauthUrl).toContain(encodeURIComponent('alice@example.com'));
+  });
+
+  it('totpEnrollVerify confirms a valid code, enables 2FA, and returns backup codes', async () => {
+    const secret = new Secret({ size: 20 }).base32;
+    const code = new TOTP({ secret: Secret.fromBase32(secret), algorithm: 'SHA1', digits: 6, period: 30 }).generate();
+
+    vi.mocked(db.select).mockReturnValue(makeChain([{ encryptedSecret: encryptTotpSecret(secret) }]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.totpEnrollVerify({ code });
+
+    expect(result.backupCodes).toHaveLength(10);
+    expect(result.backupCodes[0]).toMatch(/^[0-9a-f]{5}-[0-9a-f]{5}$/);
+  });
+
+  it('totpEnrollVerify rejects an incorrect code', async () => {
+    const secret = new Secret({ size: 20 }).base32;
+    vi.mocked(db.select).mockReturnValue(makeChain([{ encryptedSecret: encryptTotpSecret(secret) }]));
+
+    await expect(
+      authedCaller(session).auth.totpEnrollVerify({ code: '000000' }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('totpDisable removes credentials and backup codes on a valid code', async () => {
+    const secret = new Secret({ size: 20 }).base32;
+    const code = new TOTP({ secret: Secret.fromBase32(secret), algorithm: 'SHA1', digits: 6, period: 30 }).generate();
+
+    vi.mocked(db.select).mockReturnValue(
+      makeChain([{ encryptedSecret: encryptTotpSecret(secret), enabled: new Date() }]),
+    );
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+
+    const result = await authedCaller(session).auth.totpDisable({ code });
+
+    expect(result).toEqual({ ok: true });
+    expect(db.delete).toHaveBeenCalled();
+  });
+});
+
+describe('auth.login with TOTP enabled', () => {
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.insert).mockReset();
+  });
+
+  it('returns a totp challenge instead of a session', async () => {
+    const userRow = {
+      userId: 'user-uuid-1',
+      email: 'alice@example.com',
+      authHash: 'correct-auth-hash',
+      argon2Salt: 'user-salt',
+      encryptedVaultKey: 'evk',
+      vaultKeyIv: 'vkiv',
+      publicKey: 'pub-key',
+      encryptedPrivateKey: 'enc-priv',
+      privateKeyIv: 'pkiv',
+      lastLoginAt: new Date(),
+      totpEnabledAt: new Date(),
+    };
+
+    vi.mocked(db.select).mockReturnValueOnce(makeChain([userRow]));
+    vi.mocked(db.insert).mockReturnValue(
+      makeChain([{ id: '33367a65-e87f-4171-99ed-16f8eeabf0c1' }]),
+    );
+
+    const result = await caller.auth.login({
+      email: 'alice@example.com',
+      authHash: 'correct-auth-hash',
+    });
+
+    expect(result).toEqual({ challengeRequired: true, challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1' });
+  });
+});
+
+describe('auth.verifyLoginChallenge with TOTP', () => {
+  const credentialRow = {
+    userId: 'user-uuid-1',
+    argon2Salt: 'user-salt',
+    encryptedVaultKey: 'evk',
+    vaultKeyIv: 'vkiv',
+    publicKey: 'pub-key',
+    encryptedPrivateKey: 'enc-priv',
+    privateKeyIv: 'pkiv',
+  };
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.insert).mockReset();
+    vi.mocked(db.update).mockReset();
+    vi.mocked(db.delete).mockReset();
+  });
+
+  const pendingTotpRow = {
+    id: '33367a65-e87f-4171-99ed-16f8eeabf0c1',
+    userId: 'user-uuid-1',
+    kind: 'totp',
+    codeHash: '',
+    attempts: 0,
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+
+  it('issues a session on a correct TOTP code', async () => {
+    const secret = new Secret({ size: 20 }).base32;
+    const code = new TOTP({ secret: Secret.fromBase32(secret), algorithm: 'SHA1', digits: 6, period: 30 }).generate();
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([pendingTotpRow]))
+      .mockReturnValueOnce(makeChain([{ encryptedSecret: encryptTotpSecret(secret) }]))
+      .mockReturnValueOnce(makeChain([credentialRow]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+
+    const result = await caller.auth.verifyLoginChallenge({
+      challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1',
+      code,
+    });
+
+    if (result.challengeRequired) throw new Error('expected a session, got a challenge');
+    expect(result.userId).toBe('user-uuid-1');
+  });
+
+  it('issues a session on a valid unused backup code, then consumes it', async () => {
+    const secret = new Secret({ size: 20 }).base32;
+    const backupCode = 'abcde-12345';
+    const backupCodeHash = createHash('sha256').update(backupCode).digest('hex');
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([pendingTotpRow]))
+      .mockReturnValueOnce(makeChain([{ encryptedSecret: encryptTotpSecret(secret) }]))
+      .mockReturnValueOnce(makeChain([{ id: 'backup-1' }])) // matching unused backup code
+      .mockReturnValueOnce(makeChain([credentialRow]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+
+    const result = await caller.auth.verifyLoginChallenge({
+      challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1',
+      code: backupCode,
+    });
+
+    if (result.challengeRequired) throw new Error('expected a session, got a challenge');
+    expect(result.userId).toBe('user-uuid-1');
+    expect(backupCodeHash).toMatch(/^[0-9a-f]{64}$/);
   });
 });

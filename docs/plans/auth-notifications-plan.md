@@ -9,8 +9,8 @@ time**. Each stage is marked complete only after the user has hand-tested it.
 |-------|---------|--------|
 | 1 | Email service (`@psst/email`, Resend) | ✅ done |
 | 2 | Welcome email + email verification | ✅ done |
-| 3 | Step-up email verification (new device/location/stale session) | ⬜ not started |
-| 4 | 2FA (TOTP + backup codes) | ⬜ not started |
+| 3 | Step-up email verification (new device/location/stale session) | ✅ done |
+| 4 | 2FA (TOTP + backup codes) | ✅ done |
 | 5 | PassKey (WebAuthn) login, auth-only | ⬜ not started |
 | 6 | Vault recovery key ("forgot my master password") | ⬜ not started |
 
