@@ -115,6 +115,7 @@ function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
 
 function ChangePasswordSection() {
   const { session, setSession } = useKeyVault();
+  const utils = trpc.useUtils();
   const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -190,6 +191,11 @@ function ChangePasswordSection() {
         encryptedVaultKey: toBase64(newEncVK),
         vaultKeyIv: toBase64(newVKIv),
       });
+
+      // The server drops the recovery key on a password change (it now wraps a
+      // stale master key) — refresh the status so RecoveryKeySection stops
+      // showing "set up ✓" and prompts the user to re-enroll.
+      void utils.auth.recoveryStatus.invalidate();
 
       reset();
       setStatus('done');
@@ -543,11 +549,13 @@ function RecoveryKeySection() {
   });
 
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [confirmRegen, setConfirmRegen] = useState(false);
   const [error, setError] = useState('');
 
   const onGenerate = async () => {
     if (!session) return;
     setError('');
+    setConfirmRegen(false);
     try {
       // Derive the whole blob client-side from the in-memory master key — the
       // server never sees the recovery code.
@@ -562,6 +570,93 @@ function RecoveryKeySection() {
     }
   };
 
+  // Freshly generated code — shown once. Takes priority over every other state.
+  const renderRevealedCode = (code: string) => (
+    <div className="space-y-3 max-w-sm">
+      <p className="text-sm text-green-700 bg-green-50 rounded px-3 py-2">Recovery key enabled ✓</p>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+          Save this code now — it won't be shown again
+        </p>
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm break-all">
+          {code}
+        </div>
+      </div>
+      <button
+        onClick={() => setRecoveryCode(null)}
+        className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700"
+      >
+        I've saved it
+      </button>
+    </div>
+  );
+
+  // No recovery key yet — nothing to lose, so set up without confirmation.
+  const renderNotEnabled = () => (
+    <button
+      onClick={() => void onGenerate()}
+      disabled={setupMutation.isPending}
+      className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
+    >
+      {setupMutation.isPending ? 'Generating…' : 'Set up recovery key'}
+    </button>
+  );
+
+  // Regenerate confirmation — voiding the existing code is destructive.
+  const renderConfirmRegen = () => (
+    <div className="space-y-3 max-w-sm">
+      <p className="text-sm text-amber-700 bg-amber-50 rounded px-3 py-2">
+        Regenerating invalidates your current recovery code immediately. Make sure to save the new
+        one — there's no way to recover the old code.
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => void onGenerate()}
+          disabled={setupMutation.isPending}
+          className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {setupMutation.isPending ? 'Generating…' : 'Yes, regenerate'}
+        </button>
+        <button
+          onClick={() => setConfirmRegen(false)}
+          disabled={setupMutation.isPending}
+          className="rounded-lg border border-gray-200 text-sm text-gray-600 px-4 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  // Recovery key is set up — offer to regenerate or disable it.
+  const renderEnabled = () => (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm text-green-700">Recovery key is set up ✓</span>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setConfirmRegen(true)}
+          className="rounded-lg border border-gray-300 text-gray-700 text-sm px-4 py-1.5 hover:bg-gray-50"
+        >
+          Regenerate
+        </button>
+        <button
+          onClick={() => disableMutation.mutate()}
+          disabled={disableMutation.isPending}
+          className="rounded-lg border border-red-300 text-red-700 text-sm px-4 py-1.5 hover:bg-red-50 disabled:opacity-50"
+        >
+          Disable
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderBody = () => {
+    if (recoveryCode) return renderRevealedCode(recoveryCode);
+    if (!data?.enabled) return renderNotEnabled();
+    if (confirmRegen) return renderConfirmRegen();
+    return renderEnabled();
+  };
+
   if (isLoading) return null;
 
   return (
@@ -573,60 +668,12 @@ function RecoveryKeySection() {
         password invalidates the code — you'll need to generate a new one.
       </p>
 
-      {recoveryCode ? (
-        <div className="space-y-3 max-w-sm">
-          <p className="text-sm text-green-700 bg-green-50 rounded px-3 py-2">
-            Recovery key enabled ✓
-          </p>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
-              Save this code now — it won't be shown again
-            </p>
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm break-all">
-              {recoveryCode}
-            </div>
-          </div>
-          <button
-            onClick={() => setRecoveryCode(null)}
-            className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700"
-          >
-            I've saved it
-          </button>
-        </div>
-      ) : (
-        <>
-          {error && <p className="mb-3 text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
-          {data?.enabled ? (
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-sm text-green-700">Recovery key is set up ✓</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => void onGenerate()}
-                  disabled={setupMutation.isPending}
-                  className="rounded-lg border border-gray-300 text-gray-700 text-sm px-4 py-1.5 hover:bg-gray-50 disabled:opacity-50"
-                >
-                  {setupMutation.isPending ? 'Generating…' : 'Regenerate'}
-                </button>
-                <button
-                  onClick={() => disableMutation.mutate()}
-                  disabled={disableMutation.isPending}
-                  className="rounded-lg border border-red-300 text-red-700 text-sm px-4 py-1.5 hover:bg-red-50 disabled:opacity-50"
-                >
-                  Disable
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => void onGenerate()}
-              disabled={setupMutation.isPending}
-              className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {setupMutation.isPending ? 'Generating…' : 'Set up recovery key'}
-            </button>
-          )}
-        </>
+      {/* Errors only arise while (re)generating, which leaves us out of the reveal state. */}
+      {error && !recoveryCode && (
+        <p className="mb-3 text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>
       )}
+
+      {renderBody()}
     </section>
   );
 }

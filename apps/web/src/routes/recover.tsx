@@ -96,8 +96,8 @@ export function RecoverPage() {
           fromBase64(recoveryData.recoveryKeyIv),
         );
       } catch {
+        // The outer `finally` resets `working`; just report and bail.
         setErrorMsg('Incorrect recovery code.');
-        setWorking(false);
         return;
       }
 
