@@ -16,6 +16,22 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const codeSchema = z.object({
+  code: z.string().min(1, 'Code is required'),
+});
+
+type CodeFormValues = z.infer<typeof codeSchema>;
+
+/** Result of a successful login or completed step-up challenge. */
+interface LoginResult {
+  sessionToken: string;
+  userId: string;
+  encryptedVaultKey: string;
+  vaultKeyIv: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  privateKeyIv: string;
+}
 
 export function LoginPage() {
   usePageTitle('Sign in');
@@ -23,6 +39,12 @@ export function LoginPage() {
   const { setSession, lockedToken } = useKeyVault();
   const [status, setStatus] = useState<'idle' | 'fetching-salt' | 'deriving' | 'submitting' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Step-up challenge state — set when the server requires an emailed code.
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [masterKey, setMasterKey] = useState<Uint8Array | null>(null);
+  const [codeStatus, setCodeStatus] = useState<'idle' | 'verifying' | 'error'>('idle');
+  const [codeErrorMsg, setCodeErrorMsg] = useState('');
 
   // A session token survived a reload — send to /unlock instead of a full re-login.
   useEffect(() => {
@@ -34,6 +56,37 @@ export function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
+
+  const {
+    register: registerCode,
+    handleSubmit: handleCodeSubmit,
+    formState: { errors: codeErrors },
+  } = useForm<CodeFormValues>({ resolver: zodResolver(codeSchema) });
+
+  const finishLogin = (result: LoginResult, masterKey: Uint8Array) => {
+    // Wrong password would have failed at argon2 derivation or server authHash check;
+    // this is the final cryptographic verification.
+    const vaultKey = unwrapVaultKey(
+      fromBase64(result.encryptedVaultKey),
+      masterKey,
+      fromBase64(result.vaultKeyIv),
+    );
+
+    // Store everything in memory (private key stays encrypted until needed)
+    setSessionToken(result.sessionToken);
+    const vaultKeys = new Map<string, Uint8Array>();
+    setSession({
+      userId: result.userId,
+      sessionToken: result.sessionToken,
+      masterKey,
+      vaultKeys,
+      encryptedPrivateKey: result.encryptedPrivateKey,
+      privateKeyIv: result.privateKeyIv,
+      publicKey: result.publicKey,
+    });
+
+    navigate({ to: '/' });
+  };
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -49,7 +102,7 @@ export function LoginPage() {
 
       // 2. Derive master key (slow — show spinner)
       const { masterSalt, authSalt } = parseSaltField(argon2SaltFull);
-      const masterKey = deriveMasterKey(values.password, masterSalt);
+      const derivedMasterKey = deriveMasterKey(values.password, masterSalt);
 
       // 3. Compute auth hash for server verification
       const authKey = deriveMasterKey(`auth:${values.password}`, authSalt);
@@ -58,34 +111,20 @@ export function LoginPage() {
       setStatus('submitting');
 
       // 4. Login — server verifies authHash, returns encrypted credential blobs
+      //    (or a step-up challenge if this device/login looks risky)
       const result = await trpcClient.auth.login.mutate({
         email: values.email,
         authHash,
       });
 
-      // 5. Unwrap vault key client-side using master key
-      // Wrong password would have failed at argon2 derivation or server authHash check;
-      // this is the final cryptographic verification.
-      const vaultKey = unwrapVaultKey(
-        fromBase64(result.encryptedVaultKey),
-        masterKey,
-        fromBase64(result.vaultKeyIv),
-      );
+      if (result.challengeRequired) {
+        setMasterKey(derivedMasterKey);
+        setChallengeId(result.challengeId);
+        setStatus('idle');
+        return;
+      }
 
-      // 6. Store everything in memory (private key stays encrypted until needed)
-      setSessionToken(result.sessionToken);
-      const vaultKeys = new Map<string, Uint8Array>();
-      setSession({
-        userId: result.userId,
-        sessionToken: result.sessionToken,
-        masterKey,
-        vaultKeys,
-        encryptedPrivateKey: result.encryptedPrivateKey,
-        privateKeyIv: result.privateKeyIv,
-        publicKey: result.publicKey,
-      });
-
-      navigate({ to: '/' });
+      finishLogin(result, derivedMasterKey);
     } catch (err: unknown) {
       setStatus('error');
       // Never expose technical errors — always show generic message
@@ -94,7 +133,79 @@ export function LoginPage() {
     }
   };
 
+  const onSubmitCode = async (values: CodeFormValues) => {
+    if (!challengeId || !masterKey) return;
+
+    try {
+      setCodeStatus('verifying');
+      setCodeErrorMsg('');
+
+      const result = await trpcClient.auth.verifyLoginChallenge.mutate({
+        challengeId,
+        code: values.code.trim(),
+      });
+
+      if (result.challengeRequired) {
+        // Should not happen — verifyLoginChallenge always resolves to a session.
+        throw new Error('Unexpected challenge response');
+      }
+
+      finishLogin(result, masterKey);
+    } catch (err) {
+      setCodeStatus('error');
+      setCodeErrorMsg('Incorrect or expired code. Please try again.');
+      console.error(err);
+    }
+  };
+
   const isLoading = status !== 'idle' && status !== 'error';
+
+  if (challengeId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-gray-900">Check your email</h1>
+            <p className="mt-2 text-sm text-gray-500">
+              We sent a verification code to your email — enter it below to finish signing in.
+            </p>
+          </div>
+
+          <form
+            onSubmit={handleCodeSubmit(onSubmitCode)}
+            className="space-y-4 rounded-xl bg-white p-8 shadow-sm border border-gray-100"
+          >
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Verification code</label>
+              <input
+                {...registerCode('code')}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm tracking-widest focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {codeErrors.code && (
+                <p className="mt-1 text-xs text-red-600">{codeErrors.code.message}</p>
+              )}
+            </div>
+
+            {codeStatus === 'error' && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{codeErrorMsg}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={codeStatus === 'verifying'}
+              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {codeStatus === 'verifying' ? 'Verifying…' : 'Verify and sign in'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">

@@ -4,6 +4,8 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').unique().notNull(),
   emailVerifiedAt: timestamp('email_verified_at'),
+  /** Used to decide whether a login is "stale" and needs step-up verification */
+  lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@psst/db', () => ({
@@ -23,11 +24,14 @@ vi.mock('@psst/db', () => ({
   secretVersions: {},
   invitations: {},
   emailVerifications: {},
+  knownDevices: { userId: 'userId', fingerprintHash: 'fingerprintHash' },
+  pendingAuthentications: { id: 'id', kind: 'kind' },
 }));
 
 vi.mock('@psst/email', () => ({
   sendEmail: vi.fn(),
   welcomeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
+  loginCodeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
 }));
 
 import { db, sessions } from '@psst/db';
@@ -35,12 +39,13 @@ import { appRouter } from '../routers';
 import { createCallerFactory } from '../trpc';
 
 const createCaller = createCallerFactory(appRouter);
+const noopReq = { ipAddress: '127.0.0.1', userAgent: 'vitest' };
 // Context db is unused (routers import db directly); pass undefined to satisfy types
-const caller = createCaller({ db: undefined as any, session: null });
+const caller = createCaller({ db: undefined as any, session: null, req: noopReq });
 
 /** Caller with a fake authenticated session attached — for protectedProcedure routes. */
 function authedCaller(session: { userId: string; sessionId: string }) {
-  return createCaller({ db: undefined as any, session });
+  return createCaller({ db: undefined as any, session, req: noopReq });
 }
 
 /** Builds a chainable drizzle-style query mock that resolves to `result`. */
@@ -53,6 +58,7 @@ function makeChain(result: unknown[] = []): any {
   chain.values = vi.fn().mockReturnValue(chain);
   chain.returning = vi.fn().mockResolvedValue(result);
   chain.set = vi.fn().mockReturnValue(chain);
+  chain.onConflictDoUpdate = vi.fn().mockReturnValue(chain);
   // Make the chain directly awaitable (insert/update/delete without .returning())
   chain.then = (resolve: any, reject: any) =>
     Promise.resolve(result).then(resolve, reject);
@@ -86,7 +92,82 @@ describe('auth.getSalt', () => {
 describe('auth.login', () => {
   const userRow = {
     userId: 'user-uuid-1',
+    email: 'alice@example.com',
     authHash: 'correct-auth-hash',
+    argon2Salt: 'user-salt',
+    encryptedVaultKey: 'evk',
+    vaultKeyIv: 'vkiv',
+    publicKey: 'pub-key',
+    encryptedPrivateKey: 'enc-priv',
+    privateKeyIv: 'pkiv',
+    lastLoginAt: new Date(),
+  };
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReset();
+    vi.mocked(db.insert).mockReset();
+    vi.mocked(db.update).mockReset();
+  });
+
+  it('throws UNAUTHORIZED when auth hash does not match', async () => {
+    vi.mocked(db.select).mockReturnValue(makeChain([userRow]));
+
+    await expect(
+      caller.auth.login({ email: 'alice@example.com', authHash: 'wrong-hash' })
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('returns a session token and user data when the device is known and recent', async () => {
+    // 1st select: user+credentials, 2nd select: known device lookup (found)
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([userRow]))
+      .mockReturnValueOnce(makeChain([{ id: 'device-1' }]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
+
+    const result = await caller.auth.login({
+      email: 'alice@example.com',
+      authHash: 'correct-auth-hash',
+    });
+
+    if (result.challengeRequired) throw new Error('expected a session, got a challenge');
+    expect(result.userId).toBe('user-uuid-1');
+    expect(result.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.argon2Salt).toBe('user-salt');
+    expect(result.publicKey).toBe('pub-key');
+  });
+
+  it('requires a step-up challenge from an unknown device', async () => {
+    // 1st select: user+credentials, 2nd select: known device lookup (not found)
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([userRow]))
+      .mockReturnValueOnce(makeChain([]));
+    vi.mocked(db.insert).mockReturnValue(makeChain([{ id: '33367a65-e87f-4171-99ed-16f8eeabf0c1' }]));
+
+    const result = await caller.auth.login({
+      email: 'alice@example.com',
+      authHash: 'correct-auth-hash',
+    });
+
+    expect(result).toEqual({ challengeRequired: true, challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1' });
+  });
+});
+
+describe('auth.verifyLoginChallenge', () => {
+  const code = '123456';
+  const codeHash = createHash('sha256').update(code).digest('hex');
+
+  const pendingRow = {
+    id: '33367a65-e87f-4171-99ed-16f8eeabf0c1',
+    userId: 'user-uuid-1',
+    kind: 'email_code',
+    codeHash,
+    attempts: 0,
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+
+  const credentialRow = {
+    userId: 'user-uuid-1',
     argon2Salt: 'user-salt',
     encryptedVaultKey: 'evk',
     vaultKeyIv: 'vkiv',
@@ -98,29 +179,34 @@ describe('auth.login', () => {
   beforeEach(() => {
     vi.mocked(db.select).mockReset();
     vi.mocked(db.insert).mockReset();
+    vi.mocked(db.update).mockReset();
+    vi.mocked(db.delete).mockReset();
   });
 
-  it('throws UNAUTHORIZED when auth hash does not match', async () => {
-    vi.mocked(db.select).mockReturnValue(makeChain([userRow]));
+  it('throws on an incorrect code and increments attempts', async () => {
+    vi.mocked(db.select).mockReturnValueOnce(makeChain([pendingRow]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
 
     await expect(
-      caller.auth.login({ email: 'alice@example.com', authHash: 'wrong-hash' })
+      caller.auth.verifyLoginChallenge({ challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1', code: 'wrong-code' }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    expect(db.update).toHaveBeenCalled();
   });
 
-  it('returns a session token and user data on valid credentials', async () => {
-    vi.mocked(db.select).mockReturnValue(makeChain([userRow]));
+  it('issues a session on a correct code', async () => {
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([pendingRow]))
+      .mockReturnValueOnce(makeChain([credentialRow]));
     vi.mocked(db.insert).mockReturnValue(makeChain([]));
+    vi.mocked(db.update).mockReturnValue(makeChain([]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
 
-    const result = await caller.auth.login({
-      email: 'alice@example.com',
-      authHash: 'correct-auth-hash',
-    });
+    const result = await caller.auth.verifyLoginChallenge({ challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1', code });
 
+    if (result.challengeRequired) throw new Error('expected a session, got a challenge');
     expect(result.userId).toBe('user-uuid-1');
     expect(result.sessionToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(result.argon2Salt).toBe('user-salt');
-    expect(result.publicKey).toBe('pub-key');
   });
 });
 

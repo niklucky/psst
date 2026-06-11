@@ -7,6 +7,7 @@ import type { DrizzleClient } from '@psst/db';
 export interface Context {
   db: DrizzleClient;
   session: { userId: string; sessionId: string } | null;
+  req: { ipAddress: string | null; userAgent: string | null };
 }
 
 const t = initTRPC.context<Context>().create();

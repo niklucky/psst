@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import {
   db,
   sessions,
@@ -8,8 +8,10 @@ import {
   organisationMembers,
   vaultMembers,
   emailVerifications,
+  knownDevices,
+  pendingAuthentications,
 } from '@psst/db';
-import { sendEmail, welcomeEmail } from '@psst/email';
+import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
 import { TRPCError } from '@trpc/server';
 import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod/v4';
@@ -22,12 +24,86 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Email verification link lifetime: 24 hours */
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** A login from a known device older than this requires step-up verification again */
+const STALE_LOGIN_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Step-up email code lifetime: 10 minutes */
+const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
+
+/** Max incorrect code attempts before the challenge is invalidated */
+const MAX_CODE_ATTEMPTS = 5;
+
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
 function generateSessionToken(): string {
   return randomBytes(32).toString('hex');
+}
+
+/** sha256 hex fingerprint of a device, derived from IP + User-Agent */
+function fingerprintDevice(ipAddress: string | null, userAgent: string | null): string {
+  return hashToken(`${ipAddress ?? ''}|${userAgent ?? ''}`);
+}
+
+/** Generates a 6-digit numeric one-time code. */
+function generateLoginCode(): string {
+  return randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+interface UserCredentialRow {
+  userId: string;
+  argon2Salt: string;
+  encryptedVaultKey: string;
+  vaultKeyIv: string;
+  publicKey: string;
+  encryptedPrivateKey: string;
+  privateKeyIv: string;
+}
+
+/**
+ * Issues a session for a user who has passed all required checks, and marks
+ * their device as known so future logins from it skip step-up verification.
+ */
+async function issueSession(
+  row: UserCredentialRow,
+  req: { ipAddress: string | null; userAgent: string | null },
+) {
+  const token = generateSessionToken();
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  await db.insert(sessions).values({
+    userId: row.userId,
+    tokenHash,
+    expiresAt,
+    ipAddress: req.ipAddress ?? undefined,
+    userAgent: req.userAgent ?? undefined,
+  });
+
+  const fingerprintHash = fingerprintDevice(req.ipAddress, req.userAgent);
+  await db
+    .insert(knownDevices)
+    .values({ userId: row.userId, fingerprintHash, lastSeenAt: new Date() })
+    .onConflictDoUpdate({
+      target: [knownDevices.userId, knownDevices.fingerprintHash],
+      set: { lastSeenAt: new Date() },
+    });
+
+  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, row.userId));
+
+  return {
+    challengeRequired: false as const,
+    sessionToken: token,
+    userId: row.userId,
+    expiresAt,
+    argon2Salt: row.argon2Salt,
+    encryptedVaultKey: row.encryptedVaultKey,
+    vaultKeyIv: row.vaultKeyIv,
+    publicKey: row.publicKey,
+    encryptedPrivateKey: row.encryptedPrivateKey,
+    privateKeyIv: row.privateKeyIv,
+  };
 }
 
 /**
@@ -89,7 +165,7 @@ export const authRouter = router({
         privateKeyIv: z.string().min(1),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
 
       // Check email not already taken
@@ -107,7 +183,7 @@ export const authRouter = router({
       const result = await db.transaction(async (tx) => {
         const [user] = await tx
           .insert(users)
-          .values({ email })
+          .values({ email, lastLoginAt: new Date() })
           .returning({ id: users.id });
 
         if (!user) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
@@ -146,10 +222,23 @@ export const authRouter = router({
 
         const [session] = await tx
           .insert(sessions)
-          .values({ userId: user.id, tokenHash, expiresAt })
+          .values({
+            userId: user.id,
+            tokenHash,
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
           .returning({ id: sessions.id });
 
         if (!session) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        // Registering from this device counts as a known device — no step-up
+        // challenge on the next login from the same browser/network.
+        await tx.insert(knownDevices).values({
+          userId: user.id,
+          fingerprintHash: fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent),
+        });
 
         return { token, sessionId: session.id, userId: user.id, expiresAt };
       });
@@ -174,12 +263,13 @@ export const authRouter = router({
         authHash: z.string().min(1),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
 
       const [row] = await db
         .select({
           userId: users.id,
+          email: users.email,
           authHash: userCredentials.authHash,
           argon2Salt: userCredentials.argon2Salt,
           encryptedVaultKey: userCredentials.encryptedVaultKey,
@@ -187,6 +277,7 @@ export const authRouter = router({
           publicKey: userCredentials.publicKey,
           encryptedPrivateKey: userCredentials.encryptedPrivateKey,
           privateKeyIv: userCredentials.privateKeyIv,
+          lastLoginAt: users.lastLoginAt,
         })
         .from(users)
         .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
@@ -201,27 +292,102 @@ export const authRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
       }
 
-      const token = generateSessionToken();
-      const tokenHash = hashToken(token);
-      const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+      // Step-up check: unknown device or stale last login requires an emailed code.
+      const fingerprintHash = fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent);
+      const [device] = await db
+        .select({ id: knownDevices.id })
+        .from(knownDevices)
+        .where(and(eq(knownDevices.userId, row.userId), eq(knownDevices.fingerprintHash, fingerprintHash)))
+        .limit(1);
 
-      await db.insert(sessions).values({
-        userId: row.userId,
-        tokenHash,
-        expiresAt,
-      });
+      const isStale = !row.lastLoginAt || Date.now() - row.lastLoginAt.getTime() > STALE_LOGIN_MS;
 
-      return {
-        sessionToken: token,
-        userId: row.userId,
-        expiresAt,
-        argon2Salt: row.argon2Salt,
-        encryptedVaultKey: row.encryptedVaultKey,
-        vaultKeyIv: row.vaultKeyIv,
-        publicKey: row.publicKey,
-        encryptedPrivateKey: row.encryptedPrivateKey,
-        privateKeyIv: row.privateKeyIv,
-      };
+      if (!device || isStale) {
+        const code = generateLoginCode();
+        const codeHash = hashToken(code);
+        const expiresAt = new Date(Date.now() + LOGIN_CODE_TTL_MS);
+
+        const [pending] = await db
+          .insert(pendingAuthentications)
+          .values({
+            userId: row.userId,
+            kind: 'email_code',
+            codeHash,
+            expiresAt,
+            ipAddress: ctx.req.ipAddress ?? undefined,
+            userAgent: ctx.req.userAgent ?? undefined,
+          })
+          .returning({ id: pendingAuthentications.id });
+
+        if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+
+        const { subject, html, text } = loginCodeEmail({ code });
+        await sendEmail({ to: row.email, subject, html, text });
+
+        return { challengeRequired: true as const, challengeId: pending.id };
+      }
+
+      return issueSession(row, ctx.req);
+    }),
+
+  /**
+   * Completes a step-up email verification challenge issued by `login` and
+   * issues a session, exactly as a normal login would.
+   */
+  verifyLoginChallenge: publicProcedure
+    .input(
+      z.object({
+        challengeId: z.string().uuid(),
+        code: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [pending] = await db
+        .select()
+        .from(pendingAuthentications)
+        .where(
+          and(eq(pendingAuthentications.id, input.challengeId), eq(pendingAuthentications.kind, 'email_code')),
+        )
+        .limit(1);
+
+      if (!pending || pending.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired code' });
+      }
+
+      if (pending.attempts >= MAX_CODE_ATTEMPTS) {
+        await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Too many attempts — please log in again' });
+      }
+
+      if (hashToken(input.code) !== pending.codeHash) {
+        await db
+          .update(pendingAuthentications)
+          .set({ attempts: pending.attempts + 1 })
+          .where(eq(pendingAuthentications.id, pending.id));
+
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect code' });
+      }
+
+      const [row] = await db
+        .select({
+          userId: users.id,
+          argon2Salt: userCredentials.argon2Salt,
+          encryptedVaultKey: userCredentials.encryptedVaultKey,
+          vaultKeyIv: userCredentials.vaultKeyIv,
+          publicKey: userCredentials.publicKey,
+          encryptedPrivateKey: userCredentials.encryptedPrivateKey,
+          privateKeyIv: userCredentials.privateKeyIv,
+        })
+        .from(users)
+        .innerJoin(userCredentials, eq(userCredentials.userId, users.id))
+        .where(eq(users.id, pending.userId))
+        .limit(1);
+
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+
+      return issueSession(row, ctx.req);
     }),
 
   /**

@@ -1,5 +1,6 @@
 import './setup'; // must be first — loads .env before any other module initializes
 import { serve } from '@hono/node-server';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { db } from '@psst/db';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
@@ -35,6 +36,10 @@ app.all('/api/trpc/*', async (c) => {
     createContext: () => ({
       db,
       session: getSession(c),
+      req: {
+        ipAddress: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? getConnInfo(c).remote.address ?? null,
+        userAgent: c.req.header('user-agent') ?? null,
+      },
     }),
   });
 });
