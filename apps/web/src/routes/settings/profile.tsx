@@ -9,6 +9,7 @@ import {
 } from '@psst/crypto';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';
@@ -437,6 +438,84 @@ function TwoFactorSection() {
   );
 }
 
+// ── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+function PasskeysSection() {
+  const utils = trpc.useUtils();
+  const { data: passkeys, isLoading } = trpc.auth.webauthnCredentials.useQuery();
+  const optionsMutation = trpc.auth.webauthnRegisterOptions.useMutation();
+  const verifyMutation = trpc.auth.webauthnRegisterVerify.useMutation();
+  const deleteMutation = trpc.auth.webauthnDeleteCredential.useMutation({
+    onSuccess: () => void utils.auth.webauthnCredentials.invalidate(),
+  });
+
+  const [error, setError] = useState('');
+  const [registering, setRegistering] = useState(false);
+
+  const onRegister = async () => {
+    setError('');
+    setRegistering(true);
+    try {
+      const { challengeId, options } = await optionsMutation.mutateAsync();
+      const response = await startRegistration({ optionsJSON: options });
+      const name = options.user.displayName || 'Passkey';
+      await verifyMutation.mutateAsync({ challengeId, response, name });
+      await utils.auth.webauthnCredentials.invalidate();
+    } catch (err) {
+      // A user cancelling the browser prompt throws too — keep the copy generic.
+      setError('Could not register a passkey. Please try again.');
+      console.error(err);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Passkeys</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Sign in with Touch ID, Windows Hello, or a security key instead of typing your password.
+        You'll still enter your master password to unlock your vault.
+      </p>
+
+      {passkeys && passkeys.length > 0 && (
+        <ul className="mb-4 divide-y divide-gray-100 rounded-lg border border-gray-200">
+          {passkeys.map((pk) => (
+            <li key={pk.id} className="flex items-center justify-between gap-4 px-3 py-2">
+              <div>
+                <p className="text-sm text-gray-900">{pk.name || 'Passkey'}</p>
+                <p className="text-xs text-gray-400">
+                  Added {new Date(pk.createdAt).toLocaleDateString()}
+                  {pk.lastUsedAt ? ` · last used ${new Date(pk.lastUsedAt).toLocaleDateString()}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => deleteMutation.mutate({ id: pk.id })}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg border border-gray-200 text-xs text-gray-600 px-3 py-1 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {error && <p className="mb-3 text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
+
+      <button
+        onClick={() => void onRegister()}
+        disabled={registering}
+        className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
+      >
+        {registering ? 'Waiting for passkey…' : 'Add a passkey'}
+      </button>
+    </section>
+  );
+}
+
 // ── Delete Account ─────────────────────────────────────────────────────────
 
 function DeleteAccountSection() {
@@ -513,6 +592,7 @@ export function ProfileSettingsPage() {
       <ChangeEmailSection currentEmail={me?.email ?? ''} />
       <ChangePasswordSection />
       <TwoFactorSection />
+      <PasskeysSection />
       <DeleteAccountSection />
     </div>
   );

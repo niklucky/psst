@@ -63,6 +63,12 @@ interface KeyVaultContextValue {
   clearSession: () => void;
   /** Drops the master key but keeps the session token, moving to the "locked" state. */
   lock: () => void;
+  /**
+   * Enters the "locked" state with a freshly-issued session token but no master
+   * key — used by passkey login, which authenticates without the password, so
+   * the user lands on `/unlock` to derive the encryption key.
+   */
+  beginLockedSession: (token: string) => void;
 }
 
 const KeyVaultContext = createContext<KeyVaultContextValue | null>(null);
@@ -101,9 +107,16 @@ export function KeyVaultProvider({ children }: { children: ReactNode }) {
     setSessionToken(null);
   };
 
+  const beginLockedSession = (token: string) => {
+    persistToken(token);
+    setSessionToken(token);
+    setSessionState(null);
+    setLockedToken(token);
+  };
+
   return (
     <KeyVaultContext.Provider
-      value={{ session, lockedToken, setSession, addVaultKey, clearSession, lock }}
+      value={{ session, lockedToken, setSession, addVaultKey, clearSession, lock, beginLockedSession }}
     >
       {children}
     </KeyVaultContext.Provider>

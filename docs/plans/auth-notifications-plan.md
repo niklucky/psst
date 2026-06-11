@@ -11,7 +11,7 @@ time**. Each stage is marked complete only after the user has hand-tested it.
 | 2 | Welcome email + email verification | ✅ done |
 | 3 | Step-up email verification (new device/location/stale session) | ✅ done |
 | 4 | 2FA (TOTP + backup codes) | ✅ done |
-| 5 | PassKey (WebAuthn) login, auth-only | ⬜ not started |
+| 5 | PassKey (WebAuthn) login, auth-only | ✅ done |
 | 6 | Vault recovery key ("forgot my master password") | ⬜ not started |
 
 ---

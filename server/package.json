@@ -33,6 +33,7 @@
     "@psst/db": "workspace:*",
     "@psst/email": "workspace:*",
     "@psst/shared": "workspace:*",
+    "@simplewebauthn/server": "^13.3.1",
     "@trpc/server": "^11.17.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
