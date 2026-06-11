@@ -1,9 +1,11 @@
 import {
   deriveMasterKey,
   fromBase64,
+  generateRecoveryCode,
   generateSalt,
   toBase64,
   unwrapPrivateKey,
+  unwrapVaultKey,
   wrapPrivateKey,
   wrapVaultKey,
 } from '@psst/crypto';
@@ -13,7 +15,7 @@ import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';
-import { encodeSaltField } from '../../utils/auth';
+import { buildRecoveryBlob, encodeSaltField } from '../../utils/auth';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { PasswordStrength } from '../../components/ui/PasswordStrength';
 
@@ -149,6 +151,15 @@ function ChangePasswordSection() {
       );
       const { encryptedPrivateKey: newEncPK, iv: newPKIv } = wrapPrivateKey(privateKey, newMasterKey);
 
+      // 4b. Re-wrap the personal vault key (the /unlock password-check sentinel)
+      // under the new master key — otherwise unlock fails after the next reload.
+      const personalVaultKey = unwrapVaultKey(
+        fromBase64(session.encryptedVaultKey),
+        session.masterKey,
+        fromBase64(session.vaultKeyIv),
+      );
+      const { encryptedVaultKey: newEncVK, iv: newVKIv } = wrapVaultKey(personalVaultKey, newMasterKey);
+
       // 5. Re-wrap all active vault keys
       const vaultKeysList = [...session.vaultKeys.entries()].map(([vaultId, vaultKey]) => {
         const { encryptedVaultKey, iv } = wrapVaultKey(vaultKey, newMasterKey);
@@ -163,6 +174,8 @@ function ChangePasswordSection() {
       await mutation.mutateAsync({
         newAuthHash,
         newArgon2Salt,
+        newEncryptedVaultKey: toBase64(newEncVK),
+        newVaultKeyIv: toBase64(newVKIv),
         newEncryptedPrivateKey: toBase64(newEncPK),
         newPrivateKeyIv: toBase64(newPKIv),
         vaultKeys: vaultKeysList,
@@ -174,6 +187,8 @@ function ChangePasswordSection() {
         masterKey: newMasterKey,
         encryptedPrivateKey: toBase64(newEncPK),
         privateKeyIv: toBase64(newPKIv),
+        encryptedVaultKey: toBase64(newEncVK),
+        vaultKeyIv: toBase64(newVKIv),
       });
 
       reset();
@@ -516,6 +531,106 @@ function PasskeysSection() {
   );
 }
 
+// ── Recovery Key ───────────────────────────────────────────────────────────
+
+function RecoveryKeySection() {
+  const { session } = useKeyVault();
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.auth.recoveryStatus.useQuery();
+  const setupMutation = trpc.auth.recoverySetup.useMutation();
+  const disableMutation = trpc.auth.recoveryDisable.useMutation({
+    onSuccess: () => void utils.auth.recoveryStatus.invalidate(),
+  });
+
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const onGenerate = async () => {
+    if (!session) return;
+    setError('');
+    try {
+      // Derive the whole blob client-side from the in-memory master key — the
+      // server never sees the recovery code.
+      const code = generateRecoveryCode();
+      const blob = buildRecoveryBlob(code, session.masterKey);
+      await setupMutation.mutateAsync(blob);
+      await utils.auth.recoveryStatus.invalidate();
+      setRecoveryCode(code);
+    } catch (err) {
+      setError('Could not set up a recovery key. Please try again.');
+      console.error(err);
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Recovery key</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        A one-time recovery code lets you regain access to your vault if you forget your master
+        password. Without it, a forgotten password means permanent data loss. Changing your
+        password invalidates the code — you'll need to generate a new one.
+      </p>
+
+      {recoveryCode ? (
+        <div className="space-y-3 max-w-sm">
+          <p className="text-sm text-green-700 bg-green-50 rounded px-3 py-2">
+            Recovery key enabled ✓
+          </p>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+              Save this code now — it won't be shown again
+            </p>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm break-all">
+              {recoveryCode}
+            </div>
+          </div>
+          <button
+            onClick={() => setRecoveryCode(null)}
+            className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700"
+          >
+            I've saved it
+          </button>
+        </div>
+      ) : (
+        <>
+          {error && <p className="mb-3 text-xs text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
+          {data?.enabled ? (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-green-700">Recovery key is set up ✓</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void onGenerate()}
+                  disabled={setupMutation.isPending}
+                  className="rounded-lg border border-gray-300 text-gray-700 text-sm px-4 py-1.5 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {setupMutation.isPending ? 'Generating…' : 'Regenerate'}
+                </button>
+                <button
+                  onClick={() => disableMutation.mutate()}
+                  disabled={disableMutation.isPending}
+                  className="rounded-lg border border-red-300 text-red-700 text-sm px-4 py-1.5 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Disable
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => void onGenerate()}
+              disabled={setupMutation.isPending}
+              className="rounded-lg bg-indigo-600 text-white text-sm px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {setupMutation.isPending ? 'Generating…' : 'Set up recovery key'}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── Delete Account ─────────────────────────────────────────────────────────
 
 function DeleteAccountSection() {
@@ -593,6 +708,7 @@ export function ProfileSettingsPage() {
       <ChangePasswordSection />
       <TwoFactorSection />
       <PasskeysSection />
+      <RecoveryKeySection />
       <DeleteAccountSection />
     </div>
   );

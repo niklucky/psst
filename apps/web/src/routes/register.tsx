@@ -112,6 +112,8 @@ export function RegisterPage() {
         encryptedPrivateKey: toBase64(encryptedPrivateKey),
         privateKeyIv: toBase64(privateKeyIvBytes),
         publicKey: toBase64(publicKeyBytes),
+        encryptedVaultKey: toBase64(encryptedVaultKey),
+        vaultKeyIv: toBase64(vaultKeyIvBytes),
       });
 
       navigate({ to: '/' });

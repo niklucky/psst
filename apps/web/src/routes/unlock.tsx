@@ -65,6 +65,8 @@ export function UnlockPage() {
         encryptedPrivateKey: me.encryptedPrivateKey,
         privateKeyIv: me.privateKeyIv,
         publicKey: me.publicKey,
+        encryptedVaultKey: me.encryptedVaultKey,
+        vaultKeyIv: me.vaultKeyIv,
       });
     } catch (err: unknown) {
       const code = (err as { data?: { code?: string } })?.data?.code;
