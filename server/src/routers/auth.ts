@@ -382,8 +382,20 @@ export const authRouter = router({
 
         if (!pending) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
 
+        // Keep the challenge atomic: if the code can't be delivered the client
+        // never gets a challengeId and could never verify it, so drop the row
+        // we just wrote instead of leaving it to occupy a slot until expiry.
         const { subject, html, text } = loginCodeEmail({ code });
-        await sendEmail({ to: row.email, subject, html, text });
+        try {
+          await sendEmail({ to: row.email, subject, html, text });
+        } catch (err) {
+          await db.delete(pendingAuthentications).where(eq(pendingAuthentications.id, pending.id));
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Could not send the verification code — please try again',
+            cause: err,
+          });
+        }
 
         return { challengeRequired: true as const, challengeId: pending.id };
       }
@@ -410,6 +422,21 @@ export const authRouter = router({
         .limit(1);
 
       if (!pending || pending.expiresAt < new Date()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired code' });
+      }
+
+      // Bind the challenge to the device that originated it: the session (and
+      // the resulting trusted-device entry) must only ever be issued to the
+      // same IP + User-Agent that requested the code. Otherwise anyone who
+      // obtains the challengeId and code could complete it from their own
+      // device and have that device permanently trusted. Compared via
+      // fingerprintDevice so null IP/UA is handled consistently with knownDevices.
+      // Returns the same generic error — and intentionally touches no state — so
+      // a wrong-device submission neither leaks why nor burns the user's attempts.
+      if (
+        fingerprintDevice(ctx.req.ipAddress, ctx.req.userAgent) !==
+        fingerprintDevice(pending.ipAddress, pending.userAgent)
+      ) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired code' });
       }
 

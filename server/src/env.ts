@@ -16,6 +16,13 @@ const EnvSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   /** Base URL of the web app — used to build links in emails */
   APP_URL: z.url().default('http://localhost:5173'),
+  /**
+   * Comma-separated CIDRs (e.g. "10.0.0.0/8,::1") of reverse proxies allowed to
+   * set `x-forwarded-for`. The header is ignored unless the direct peer matches
+   * one of these — otherwise the spoofable header is trusted and clients can
+   * impersonate any device fingerprint. Empty (default) means never trust it.
+   */
+  TRUSTED_PROXIES: z.string().optional(),
 });
 
 function parseEnv() {

@@ -38,6 +38,7 @@ vi.mock('@psst/email', () => ({
   loginCodeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
 }));
 
+import { sendEmail } from '@psst/email';
 import { db, sessions } from '@psst/db';
 import { appRouter } from '../routers';
 import { createCallerFactory } from '../trpc';
@@ -112,6 +113,8 @@ describe('auth.login', () => {
     vi.mocked(db.select).mockReset();
     vi.mocked(db.insert).mockReset();
     vi.mocked(db.update).mockReset();
+    vi.mocked(db.delete).mockReset();
+    vi.mocked(sendEmail).mockReset();
   });
 
   it('throws UNAUTHORIZED when auth hash does not match', async () => {
@@ -156,6 +159,22 @@ describe('auth.login', () => {
 
     expect(result).toEqual({ challengeRequired: true, challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1' });
   });
+
+  it('deletes the pending challenge when the code email fails to send', async () => {
+    vi.mocked(db.select)
+      .mockReturnValueOnce(makeChain([userRow]))
+      .mockReturnValueOnce(makeChain([])); // unknown device → step-up
+    vi.mocked(db.insert).mockReturnValue(makeChain([{ id: '33367a65-e87f-4171-99ed-16f8eeabf0c1' }]));
+    vi.mocked(db.delete).mockReturnValue(makeChain([]));
+    vi.mocked(sendEmail).mockRejectedValueOnce(new Error('Resend is down'));
+
+    await expect(
+      caller.auth.login({ email: 'alice@example.com', authHash: 'correct-auth-hash' }),
+    ).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+
+    // The orphaned row must be cleaned up rather than left to occupy a slot.
+    expect(db.delete).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('auth.verifyLoginChallenge', () => {
@@ -169,6 +188,8 @@ describe('auth.verifyLoginChallenge', () => {
     codeHash,
     attempts: 0,
     expiresAt: new Date(Date.now() + 60_000),
+    ipAddress: '127.0.0.1',
+    userAgent: 'vitest',
   };
 
   const credentialRow = {
@@ -212,6 +233,27 @@ describe('auth.verifyLoginChallenge', () => {
     if (result.challengeRequired) throw new Error('expected a session, got a challenge');
     expect(result.userId).toBe('user-uuid-1');
     expect(result.sessionToken).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects a correct code submitted from a different device and leaves attempts untouched', async () => {
+    // Challenge originated on 127.0.0.1/vitest; submit from a different IP/UA.
+    const otherDeviceCaller = createCaller({
+      db: undefined as any,
+      session: null,
+      req: { ipAddress: '10.0.0.99', userAgent: 'attacker-agent' },
+    });
+    vi.mocked(db.select).mockReturnValueOnce(makeChain([pendingRow]));
+
+    await expect(
+      otherDeviceCaller.auth.verifyLoginChallenge({
+        challengeId: '33367a65-e87f-4171-99ed-16f8eeabf0c1',
+        code,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    // No state mutated: attempts not incremented, challenge not consumed.
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.delete).not.toHaveBeenCalled();
   });
 });
 
@@ -505,6 +547,8 @@ describe('auth.verifyLoginChallenge with TOTP', () => {
     codeHash: '',
     attempts: 0,
     expiresAt: new Date(Date.now() + 60_000),
+    ipAddress: '127.0.0.1',
+    userAgent: 'vitest',
   };
 
   it('issues a session on a correct TOTP code', async () => {

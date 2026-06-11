@@ -1,12 +1,12 @@
 import './setup'; // must be first — loads .env before any other module initializes
 import { serve } from '@hono/node-server';
-import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { db } from '@psst/db';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
+import { getClientIp } from './client-ip';
 import { env } from './env';
 import { getSession, sessionMiddleware } from './middleware/session';
 import { appRouter } from './routers/index';
@@ -37,7 +37,7 @@ app.all('/api/trpc/*', async (c) => {
       db,
       session: getSession(c),
       req: {
-        ipAddress: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? getConnInfo(c).remote.address ?? null,
+        ipAddress: getClientIp(c),
         userAgent: c.req.header('user-agent') ?? null,
       },
     }),
