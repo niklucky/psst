@@ -57,6 +57,13 @@ const LOGIN_CODE_TTL_MS = 10 * 60 * 1000;
 /** Max incorrect code attempts before the challenge is invalidated */
 const MAX_CODE_ATTEMPTS = 5;
 
+/**
+ * Probability that a given `webauthnLoginOptions` call also sweeps expired
+ * challenge rows. Amortizes cleanup across requests so the unbounded DELETE
+ * scan stays off the per-login hot path (there's no background job here).
+ */
+const WEBAUTHN_PRUNE_PROBABILITY = 0.01;
+
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -909,7 +916,9 @@ export const authRouter = router({
       authenticatorSelection: {
         // Require a discoverable (resident) credential so login needs no username.
         residentKey: 'required',
-        userVerification: 'preferred',
+        // Require user verification (biometric/PIN) — for a password manager,
+        // possession of the device alone must not be enough to authenticate.
+        userVerification: 'required',
       },
     });
 
@@ -937,18 +946,23 @@ export const authRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      // Atomically consume the challenge — DELETE ... RETURNING guarantees only
+      // one concurrent request can claim it, preventing replay of a single
+      // attestation into two credentials. A missing row = invalid/expired/reused.
       const [challenge] = await db
-        .select()
-        .from(webauthnChallenges)
-        .where(eq(webauthnChallenges.id, input.challengeId))
-        .limit(1);
+        .delete(webauthnChallenges)
+        .where(
+          and(
+            eq(webauthnChallenges.id, input.challengeId),
+            eq(webauthnChallenges.userId, ctx.session.userId),
+            gt(webauthnChallenges.expiresAt, new Date()),
+          ),
+        )
+        .returning();
 
-      if (!challenge || challenge.userId !== ctx.session.userId || challenge.expiresAt < new Date()) {
+      if (!challenge) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired challenge' });
       }
-
-      // The challenge is single-use regardless of outcome.
-      await db.delete(webauthnChallenges).where(eq(webauthnChallenges.id, challenge.id));
 
       let verification;
       try {
@@ -957,6 +971,8 @@ export const authRouter = router({
           expectedChallenge: challenge.challenge,
           expectedOrigin: origin,
           expectedRPID: rpID,
+          // Don't enroll a credential that wasn't created with user verification.
+          requireUserVerification: true,
         });
       } catch (err) {
         console.error('[webauthn] registration verify failed:', err, {
@@ -1007,13 +1023,19 @@ export const authRouter = router({
   webauthnLoginOptions: publicProcedure.mutation(async () => {
     const options = await generateAuthenticationOptions({
       rpID,
-      userVerification: 'preferred',
+      // Require user verification (biometric/PIN), not just presence — see
+      // webauthnRegisterOptions. Enforced again at verify time.
+      userVerification: 'required',
       // Empty allowCredentials → the browser offers any discoverable passkey for
       // this RP, so we don't need the email up front.
     });
 
-    // Opportunistically prune expired challenges so the table doesn't grow.
-    await db.delete(webauthnChallenges).where(lt(webauthnChallenges.expiresAt, new Date()));
+    // Opportunistically prune expired challenges so the table doesn't grow —
+    // but only on a small fraction of requests, keeping the table scan off the
+    // hot path of every login attempt.
+    if (Math.random() < WEBAUTHN_PRUNE_PROBABILITY) {
+      await db.delete(webauthnChallenges).where(lt(webauthnChallenges.expiresAt, new Date()));
+    }
 
     const expiresAt = new Date(Date.now() + WEBAUTHN_CHALLENGE_TTL_MS);
     const [challenge] = await db
@@ -1040,18 +1062,22 @@ export const authRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      // Atomically consume the challenge — DELETE ... RETURNING guarantees only
+      // one concurrent request can claim it, so a single assertion can't be
+      // replayed into two sessions. A missing row = invalid/expired/reused.
       const [challenge] = await db
-        .select()
-        .from(webauthnChallenges)
-        .where(eq(webauthnChallenges.id, input.challengeId))
-        .limit(1);
+        .delete(webauthnChallenges)
+        .where(
+          and(
+            eq(webauthnChallenges.id, input.challengeId),
+            gt(webauthnChallenges.expiresAt, new Date()),
+          ),
+        )
+        .returning();
 
-      if (!challenge || challenge.expiresAt < new Date()) {
+      if (!challenge) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired challenge' });
       }
-
-      // The challenge is single-use regardless of outcome.
-      await db.delete(webauthnChallenges).where(eq(webauthnChallenges.id, challenge.id));
 
       // Resolve the credential from the assertion's credential ID.
       const [cred] = await db
@@ -1079,6 +1105,8 @@ export const authRouter = router({
               ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[])
               : undefined,
           },
+          // Reject presence-only assertions (security key with no PIN/biometric).
+          requireUserVerification: true,
         });
       } catch (err) {
         console.error('[webauthn] authentication verify failed:', err, {
@@ -1088,7 +1116,10 @@ export const authRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Passkey verification failed', cause: err });
       }
 
-      if (!verification.verified) {
+      // Belt-and-suspenders: `requireUserVerification` above already rejects
+      // !uv assertions, but assert the flag explicitly so the guarantee is
+      // visible at the call site and survives any library default change.
+      if (!verification.verified || !verification.authenticationInfo.userVerified) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Passkey verification failed' });
       }
 
