@@ -1,4 +1,4 @@
-import type { CardPayload } from '@psst/shared';
+import type { CardPayload } from '@silo/shared';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { CopyButton } from '../CopyButton';

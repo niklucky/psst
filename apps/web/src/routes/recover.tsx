@@ -10,7 +10,7 @@ import {
   unwrapVaultKey,
   wrapPrivateKey,
   wrapVaultKey,
-} from '@psst/crypto';
+} from '@silo/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';

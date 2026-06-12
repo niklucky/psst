@@ -8,8 +8,8 @@ import {
   userCredentials,
   vaults,
   vaultMembers,
-} from '@psst/db';
-import { inviteEmail, sendEmail } from '@psst/email';
+} from '@silo/db';
+import { inviteEmail, sendEmail } from '@silo/email';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod/v4';

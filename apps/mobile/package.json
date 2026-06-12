@@ -1,5 +1,5 @@
 {
-  "name": "@psst/mobile",
+  "name": "@silo/mobile",
   "version": "0.0.0",
   "private": true,
   "description": "Expo React Native app",
@@ -11,7 +11,7 @@
     "test": "echo \"No tests yet\""
   },
   "devDependencies": {
-    "@psst/config": "workspace:*",
+    "@silo/config": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

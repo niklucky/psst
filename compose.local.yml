@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: dev
-      POSTGRES_DB: psst
+      POSTGRES_DB: silo
     ports:
       - "5432:5432"
     volumes:
@@ -35,8 +35,8 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/psst-files &&
-      echo 'Bucket psst-files ready.'
+      mc mb --ignore-existing local/silo-files &&
+      echo 'Bucket silo-files ready.'
       "
 
 volumes:

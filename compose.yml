@@ -23,7 +23,7 @@ services:
       - proxy
 
   app:
-    image: ghcr.io/niklucky/psst:main
+    image: ghcr.io/niklucky/silo:main
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -34,11 +34,11 @@ services:
       - internal
     labels:
       - traefik.enable=true
-      - traefik.docker.network=psst_proxy
-      - traefik.http.routers.psst.rule=Host(`${DOMAIN}`)
-      - traefik.http.routers.psst.entrypoints=websecure
-      - traefik.http.routers.psst.tls.certresolver=letsencrypt
-      - traefik.http.services.psst.loadbalancer.server.port=3001
+      - traefik.docker.network=silo_proxy
+      - traefik.http.routers.silo.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.silo.entrypoints=websecure
+      - traefik.http.routers.silo.tls.certresolver=letsencrypt
+      - traefik.http.services.silo.loadbalancer.server.port=3001
 
   db:
     image: postgres:17-alpine
@@ -46,7 +46,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: psst
+      POSTGRES_DB: silo
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -66,7 +66,7 @@ services:
       - proxy
     labels:
       - traefik.enable=true
-      - traefik.docker.network=psst_proxy
+      - traefik.docker.network=silo_proxy
       # S3 API — needed for presigned upload URLs from clients
       - traefik.http.routers.minio-api.rule=Host(`s3.${DOMAIN}`)
       - traefik.http.routers.minio-api.entrypoints=websecure

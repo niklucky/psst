@@ -1,4 +1,4 @@
-import { db, secrets, vaultMembers } from '@psst/db';
+import { db, secrets, vaultMembers } from '@silo/db';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';

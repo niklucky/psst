@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const PASSWORD = 'correct horse battery staple 9';
-const TOKEN_KEY = 'psst:session_token';
+const TOKEN_KEY = 'silo:session_token';
 
 function uniqueEmail(tag: string): string {
   return `auth-e2e-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@hono/node-server', () => ({ serve: vi.fn() }));
 
 // Mock the database — the health route calls db.execute(sql`SELECT 1`)
-vi.mock('@psst/db', () => ({
+vi.mock('@silo/db', () => ({
   db: {
     execute: vi.fn(),
     select: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock('@psst/db', () => ({
   invitations: {},
 }));
 
-import { db } from '@psst/db';
+import { db } from '@silo/db';
 import app from '../index';
 
 describe('GET /health', () => {

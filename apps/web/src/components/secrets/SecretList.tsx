@@ -1,4 +1,4 @@
-import type { SecretType } from '@psst/shared';
+import type { SecretType } from '@silo/shared';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { useDebounce } from '../../hooks/useDebounce';
 import { trpc } from '../../trpc';

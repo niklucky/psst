@@ -23,10 +23,10 @@ COPY server/   ./server/
 COPY apps/web/ ./apps/web/
 
 # Build web → apps/web/dist
-RUN pnpm --filter @psst/web build
+RUN pnpm --filter @silo/web build
 
-# Build server → server/dist/index.js (tsup bundles @psst/* packages inline)
-RUN pnpm --filter @psst/server build
+# Build server → server/dist/index.js (tsup bundles @silo/* packages inline)
+RUN pnpm --filter @silo/server build
 
 # ── Stage 2: Run ─────────────────────────────────────────────────────────────
 FROM node:24-alpine AS runner

@@ -1,5 +1,5 @@
 {
-  "name": "@psst/server",
+  "name": "@silo/server",
   "version": "0.0.0",
   "private": true,
   "description": "Hono + tRPC API server",
@@ -17,7 +17,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@psst/config": "workspace:*",
+    "@silo/config": "workspace:*",
     "@types/pg": "^8.20.0",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",
@@ -29,10 +29,10 @@
     "@aws-sdk/s3-request-presigner": "^3.1057.0",
     "@hono/node-server": "^2.0.3",
     "@noble/hashes": "^2.2.0",
-    "@psst/crypto": "workspace:*",
-    "@psst/db": "workspace:*",
-    "@psst/email": "workspace:*",
-    "@psst/shared": "workspace:*",
+    "@silo/crypto": "workspace:*",
+    "@silo/db": "workspace:*",
+    "@silo/email": "workspace:*",
+    "@silo/shared": "workspace:*",
     "@simplewebauthn/server": "^13.3.1",
     "@trpc/server": "^11.17.0",
     "dotenv": "^17.4.2",

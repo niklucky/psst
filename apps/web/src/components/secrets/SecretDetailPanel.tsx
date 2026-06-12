@@ -1,11 +1,11 @@
-import { decryptSecret, encryptSecret, fromBase64, toBase64 } from '@psst/crypto';
+import { decryptSecret, encryptSecret, fromBase64, toBase64 } from '@silo/crypto';
 import type {
   CardPayload,
   EnvVarPayload,
   FilePayload,
   LoginPayload,
   NotePayload,
-} from '@psst/shared';
+} from '@silo/shared';
 import { useMemo, useState } from 'react';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';

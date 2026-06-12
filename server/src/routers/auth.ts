@@ -15,8 +15,8 @@ import {
   webauthnCredentials,
   webauthnChallenges,
   recoveryKeys,
-} from '@psst/db';
-import { loginCodeEmail, sendEmail, welcomeEmail } from '@psst/email';
+} from '@silo/db';
+import { loginCodeEmail, sendEmail, welcomeEmail } from '@silo/email';
 import { TRPCError } from '@trpc/server';
 import {
   generateRegistrationOptions,

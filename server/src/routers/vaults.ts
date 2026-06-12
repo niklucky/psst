@@ -6,7 +6,7 @@ import {
   organisationMembers,
   secrets,
   users,
-} from '@psst/db';
+} from '@silo/db';
 import { TRPCError } from '@trpc/server';
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod/v4';

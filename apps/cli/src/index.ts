@@ -1,21 +1,21 @@
 /**
- * psst CLI — zero-knowledge secrets management for developers
+ * silo CLI — zero-knowledge secrets management for developers
  *
  * Usage:
- *   psst login                 — authenticate
- *   psst logout                — clear session
- *   psst whoami                — show current user
- *   psst vault list            — list vaults
- *   psst vault use <name>      — set default vault
- *   psst secret list           — list secrets in a vault
- *   psst secret get <name>     — decrypt and print a secret
- *   psst secret create         — interactively create a secret
- *   psst secret delete <name>  — delete a secret
- *   psst secret search <term>  — search across all vaults
- *   psst env pull              — pull .env from vault
- *   psst env push              — push .env to vault
- *   psst env run -- <cmd>      — run command with vault env vars injected
- *   psst env init              — configure vault for current directory
+ *   silo login                 — authenticate
+ *   silo logout                — clear session
+ *   silo whoami                — show current user
+ *   silo vault list            — list vaults
+ *   silo vault use <name>      — set default vault
+ *   silo secret list           — list secrets in a vault
+ *   silo secret get <name>     — decrypt and print a secret
+ *   silo secret create         — interactively create a secret
+ *   silo secret delete <name>  — delete a secret
+ *   silo secret search <term>  — search across all vaults
+ *   silo env pull              — pull .env from vault
+ *   silo env push              — push .env to vault
+ *   silo env run -- <cmd>      — run command with vault env vars injected
+ *   silo env init              — configure vault for current directory
  */
 
 import { Command } from 'commander';
@@ -27,7 +27,7 @@ import { makeVaultCommand } from './commands/vault';
 const program = new Command();
 
 program
-  .name('psst')
+  .name('silo')
   .description('Zero-knowledge secrets management CLI')
   .version('0.0.0')
   .enablePositionalOptions();

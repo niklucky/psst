@@ -1,11 +1,11 @@
 {
-  "name": "psst",
+  "name": "silo",
   "private": true,
   "version": "0.0.0",
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "dev:web": "turbo dev --filter=@psst/web --filter=@psst/server",
+    "dev:web": "turbo dev --filter=@silo/web --filter=@silo/server",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",

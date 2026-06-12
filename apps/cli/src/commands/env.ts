@@ -1,5 +1,5 @@
 /**
- * psst env — env var commands
+ * silo env — env var commands
  *
  * pull   — fetch env_var secrets from a vault, write to .env file
  * push   — read .env file, encrypt and store/update as env_var secret
@@ -12,14 +12,14 @@ import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { encryptSecret, decryptSecret, fromBase64, toBase64 } from '@psst/crypto';
-import type { EnvVarPayload } from '@psst/shared';
+import { encryptSecret, decryptSecret, fromBase64, toBase64 } from '@silo/crypto';
+import type { EnvVarPayload } from '@silo/shared';
 import { requireSession, getDefaultVaultId, setDefaultVaultId, requireMasterKey } from '../lib/auth';
 import { getVaultKeysMap } from '../lib/crypto';
 import { getApiClient } from '../lib/api';
 import { promptInput } from '../lib/prompt';
 
-// ── .psst project-local config ────────────────────────────────────────────────
+// ── .silo project-local config ────────────────────────────────────────────────
 
 interface ProjectConfig {
   vaultId: string;
@@ -29,7 +29,7 @@ interface ProjectConfig {
 
 function readProjectConfig(): ProjectConfig | null {
   try {
-    const raw = fs.readFileSync('.psst', 'utf8');
+    const raw = fs.readFileSync('.silo', 'utf8');
     return JSON.parse(raw) as ProjectConfig;
   } catch {
     return null;
@@ -37,7 +37,7 @@ function readProjectConfig(): ProjectConfig | null {
 }
 
 function writeProjectConfig(cfg: ProjectConfig): void {
-  fs.writeFileSync('.psst', JSON.stringify(cfg, null, 2) + '\n');
+  fs.writeFileSync('.silo', JSON.stringify(cfg, null, 2) + '\n');
 }
 
 // ── .env file helpers ─────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ function buildSecretName(project?: string, environment?: string): string {
 function resolveVaultId(opt?: string): string {
   const vaultId = opt ?? readProjectConfig()?.vaultId ?? getDefaultVaultId();
   if (!vaultId) {
-    console.error('No vault specified. Use --vault <id> or run `psst env init`.');
+    console.error('No vault specified. Use --vault <id> or run `silo env init`.');
     process.exit(1);
   }
   return vaultId;
@@ -120,7 +120,7 @@ async function resolveVaultKey(vaultId: string): Promise<Uint8Array> {
     console.error(`Vault ${vaultId} not found or you don't have access.`);
     process.exit(1);
   }
-  const { unwrapVaultKey } = await import('@psst/crypto');
+  const { unwrapVaultKey } = await import('@silo/crypto');
   return unwrapVaultKey(
     fromBase64(vaultRow.encryptedVaultKey),
     masterKey,
@@ -150,7 +150,7 @@ function makeEnvPullCommand(): Command {
         const api = getApiClient();
         const vaultId = resolveVaultId(opts.vault);
 
-        // Resolve project/env from .psst if not supplied on command line
+        // Resolve project/env from .silo if not supplied on command line
         const projectCfg = readProjectConfig();
         const project = opts.project ?? projectCfg?.project;
         const environment = (opts.env ?? projectCfg?.environment) as
@@ -176,7 +176,7 @@ function makeEnvPullCommand(): Command {
           console.error(
             `Found ${secretList.length} env_var secrets but none match "${targetName}".\n` +
               `Available: ${secretList.map((s) => s.name).join(', ')}\n` +
-              `Tip: Use --project and --env to narrow the match, or run \`psst env init\`.`,
+              `Tip: Use --project and --env to narrow the match, or run \`silo env init\`.`,
           );
           process.exit(1);
         }
@@ -349,7 +349,7 @@ function makeEnvRunCommand(): Command {
           console.error(
             secretList.length === 0
               ? `No env_var secrets found in vault ${vaultId}.`
-              : `No env_var secret matches "${targetName}". Use --project / --env or run \`psst env init\`.`,
+              : `No env_var secret matches "${targetName}". Use --project / --env or run \`silo env init\`.`,
           );
           process.exit(1);
         }
@@ -380,12 +380,12 @@ function makeEnvRunCommand(): Command {
 
 function makeEnvInitCommand(): Command {
   return new Command('init')
-    .description('Configure vault + project for the current directory (writes .psst)')
+    .description('Configure vault + project for the current directory (writes .silo)')
     .action(async () => {
       requireSession();
       const api = getApiClient();
 
-      console.log('Setting up Psst for this directory.\n');
+      console.log('Setting up Silo for this directory.\n');
 
       const vaults = await api.vault.list.query();
       if (vaults.length === 0) {
@@ -428,27 +428,27 @@ function makeEnvInitCommand(): Command {
       // Save as global default vault too
       setDefaultVaultId(vaultId);
 
-      console.log(`\nWrote .psst`);
+      console.log(`\nWrote .silo`);
       console.log(`  Vault:       ${vaultName}`);
       console.log(`  Project:     ${project}`);
       console.log(`  Environment: ${environment}`);
 
-      // Add .psst to .gitignore if in a git repo
+      // Add .silo to .gitignore if in a git repo
       const gitignorePath = path.join(process.cwd(), '.gitignore');
       try {
         let gitignore = fs.existsSync(gitignorePath)
           ? fs.readFileSync(gitignorePath, 'utf8')
           : '';
-        if (!gitignore.split('\n').some((l) => l.trim() === '.psst')) {
-          gitignore += (gitignore.endsWith('\n') ? '' : '\n') + '.psst\n';
+        if (!gitignore.split('\n').some((l) => l.trim() === '.silo')) {
+          gitignore += (gitignore.endsWith('\n') ? '' : '\n') + '.silo\n';
           fs.writeFileSync(gitignorePath, gitignore);
-          console.log('Added .psst to .gitignore');
+          console.log('Added .silo to .gitignore');
         }
       } catch {
         // .gitignore not writable — not fatal
       }
 
-      console.log(`\nRun \`psst env pull\` to fetch your env vars.`);
+      console.log(`\nRun \`silo env pull\` to fetch your env vars.`);
     });
 }
 

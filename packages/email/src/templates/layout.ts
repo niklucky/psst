@@ -21,7 +21,7 @@ export function renderLayout(bodyHtml: string): string {
           <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;border:1px solid #f3f4f6;overflow:hidden;">
             <tr>
               <td style="padding:24px 32px;border-bottom:1px solid #f3f4f6;">
-                <span style="font-size:20px;font-weight:700;color:#111827;">🔐 Psst</span>
+                <span style="font-size:20px;font-weight:700;color:#111827;">🔐 Silo</span>
               </td>
             </tr>
             <tr>

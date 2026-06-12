@@ -1,4 +1,4 @@
-import { deriveMasterKey, fromBase64, unwrapVaultKey } from '@psst/crypto';
+import { deriveMasterKey, fromBase64, unwrapVaultKey } from '@silo/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';

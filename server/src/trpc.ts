@@ -1,5 +1,5 @@
 import { initTRPC, TRPCError } from '@trpc/server';
-import type { DrizzleClient } from '@psst/db';
+import type { DrizzleClient } from '@silo/db';
 
 /**
  * Shape of the tRPC context — built once per request in middleware.

@@ -3,7 +3,7 @@ import { Secret, TOTP } from 'otpauth';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encryptTotpSecret } from '../totp';
 
-vi.mock('@psst/db', () => ({
+vi.mock('@silo/db', () => ({
   db: {
     select: vi.fn(),
     insert: vi.fn(),
@@ -32,14 +32,14 @@ vi.mock('@psst/db', () => ({
   backupCodes: { id: 'id', userId: 'userId', codeHash: 'codeHash', usedAt: 'usedAt' },
 }));
 
-vi.mock('@psst/email', () => ({
+vi.mock('@silo/email', () => ({
   sendEmail: vi.fn(),
   welcomeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
   loginCodeEmail: vi.fn(() => ({ subject: 'subject', html: 'html', text: 'text' })),
 }));
 
-import { sendEmail } from '@psst/email';
-import { db, sessions } from '@psst/db';
+import { sendEmail } from '@silo/email';
+import { db, sessions } from '@silo/db';
 import { appRouter } from '../routers';
 import { createCallerFactory } from '../trpc';
 

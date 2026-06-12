@@ -1,4 +1,4 @@
-import type { EnvVarPayload } from '@psst/shared';
+import type { EnvVarPayload } from '@silo/shared';
 import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { CopyButton } from '../CopyButton';

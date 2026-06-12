@@ -4,7 +4,7 @@
  * Handles TTY vs non-TTY (CI/piped) gracefully:
  * - On a TTY: password input is masked (no echo)
  * - In CI/piped: falls back to a plain readline read (visible — caller
- *   should use PSST_MASTER_KEY env var instead of interactive prompts)
+ *   should use SILO_MASTER_KEY env var instead of interactive prompts)
  */
 
 import * as rl from 'node:readline/promises';

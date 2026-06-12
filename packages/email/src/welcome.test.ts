@@ -3,10 +3,10 @@ import { welcomeEmail } from './templates/welcome';
 
 describe('welcomeEmail', () => {
   it('includes the verify link in the subject and body', () => {
-    const verifyUrl = 'https://app.psst.dev/verify-email/abc123';
+    const verifyUrl = 'https://app.silo.dev/verify-email/abc123';
     const { subject, html, text } = welcomeEmail({ verifyUrl });
 
-    expect(subject).toContain('Psst');
+    expect(subject).toContain('Silo');
     expect(html).toContain(verifyUrl);
     expect(text).toContain(verifyUrl);
   });

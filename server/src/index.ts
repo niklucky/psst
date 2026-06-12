@@ -1,7 +1,7 @@
 import './setup'; // must be first — loads .env before any other module initializes
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { db } from '@psst/db';
+import { db } from '@silo/db';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';

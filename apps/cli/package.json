@@ -1,10 +1,10 @@
 {
-  "name": "@psst/cli",
+  "name": "@silo/cli",
   "version": "0.0.0",
   "private": true,
   "description": "TypeScript CLI tool for developers",
   "bin": {
-    "psst": "./dist/index.js"
+    "silo": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -14,15 +14,15 @@
     "test": "echo \"No tests yet\""
   },
   "devDependencies": {
-    "@psst/config": "workspace:*",
+    "@silo/config": "workspace:*",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@psst/api": "workspace:*",
-    "@psst/crypto": "workspace:*",
-    "@psst/shared": "workspace:*",
+    "@silo/api": "workspace:*",
+    "@silo/crypto": "workspace:*",
+    "@silo/shared": "workspace:*",
     "@trpc/client": "^11.17.0",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2"

@@ -1,5 +1,5 @@
 /**
- * psst vault — vault management commands
+ * silo vault — vault management commands
  *
  * list   — show all vaults the current user has access to
  * use    — set the default vault (saved to config)
@@ -94,7 +94,7 @@ function makeVaultUseCommand(): Command {
 
         if (!match) {
           console.error(`No vault found matching "${vaultIdOrName}".`);
-          console.error(`Run \`psst vault list\` to see available vaults.`);
+          console.error(`Run \`silo vault list\` to see available vaults.`);
           process.exit(1);
         }
 

@@ -1,4 +1,4 @@
-import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey } from '@psst/crypto';
+import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey } from '@silo/crypto';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -251,7 +251,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Sign in to Psst</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Sign in to Silo</h1>
           <p className="mt-2 text-sm text-gray-500">Your secrets stay encrypted end-to-end.</p>
         </div>
 

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createVaultKey, toBase64, wrapVaultKey } from '@psst/crypto';
+import { createVaultKey, toBase64, wrapVaultKey } from '@silo/crypto';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod/v4';

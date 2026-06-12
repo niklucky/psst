@@ -1,5 +1,5 @@
 {
-  "extends": "@psst/config/tsconfig.base.json",
+  "extends": "@silo/config/tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist"
   },

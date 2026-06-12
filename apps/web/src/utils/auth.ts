@@ -5,7 +5,7 @@ import {
   normalizeRecoveryCode,
   toBase64,
   wrapMasterKey,
-} from '@psst/crypto';
+} from '@silo/crypto';
 
 /**
  * Parses the combined argon2Salt field that encodes both the master key salt

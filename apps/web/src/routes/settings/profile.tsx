@@ -8,7 +8,7 @@ import {
   unwrapVaultKey,
   wrapPrivateKey,
   wrapVaultKey,
-} from '@psst/crypto';
+} from '@silo/crypto';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { startRegistration } from '@simplewebauthn/browser';

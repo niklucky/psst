@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 
-const BASE_TITLE = 'Psst';
+const BASE_TITLE = 'Silo';
 
 /**
- * Sets the browser tab title. Appends " — Psst" if a page name is provided.
+ * Sets the browser tab title. Appends " — Silo" if a page name is provided.
  */
 export function usePageTitle(pageTitle?: string) {
   useEffect(() => {

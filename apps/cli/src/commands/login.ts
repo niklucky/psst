@@ -1,11 +1,11 @@
 /**
- * psst login   — authenticate and persist session to ~/.psst/credentials.json
- * psst logout  — clear the session
- * psst whoami  — print current user info (email, orgs, vaults)
+ * silo login   — authenticate and persist session to ~/.silo/credentials.json
+ * silo logout  — clear the session
+ * silo whoami  — print current user info (email, orgs, vaults)
  */
 
 import { Command } from 'commander';
-import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey, wrapVaultKey } from '@psst/crypto';
+import { deriveMasterKey, fromBase64, toBase64, unwrapVaultKey, wrapVaultKey } from '@silo/crypto';
 import { getApiClient, resetApiClient } from '../lib/api';
 import { saveSession, destroySession, requireSession } from '../lib/auth';
 import { readConfig, writeConfig, getServerUrl } from '../lib/config';
@@ -33,7 +33,7 @@ function parseSaltField(argon2SaltFull: string): {
 
 export function makeLoginCommand(): Command {
   return new Command('login')
-    .description('Authenticate with the Psst server and save session locally')
+    .description('Authenticate with the Silo server and save session locally')
     .option('--server <url>', 'Override server URL for this session')
     .action(async (options: { server?: string }) => {
       try {

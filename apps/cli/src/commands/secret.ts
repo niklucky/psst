@@ -1,5 +1,5 @@
 /**
- * psst secret — general secret management commands
+ * silo secret — general secret management commands
  *
  * list   — table of secrets in a vault (filterable by type/folder)
  * get    — decrypt and display a secret; --field for scripting, --reveal to unmask
@@ -9,8 +9,8 @@
  */
 
 import { Command } from 'commander';
-import { encryptSecret, decryptSecret, toBase64, fromBase64 } from '@psst/crypto';
-import type { SecretPayload, SecretType, LoginPayload, NotePayload, EnvVarPayload } from '@psst/shared';
+import { encryptSecret, decryptSecret, toBase64, fromBase64 } from '@silo/crypto';
+import type { SecretPayload, SecretType, LoginPayload, NotePayload, EnvVarPayload } from '@silo/shared';
 import { requireSession, requireMasterKey, getDefaultVaultId } from '../lib/auth';
 import { getVaultKeysMap } from '../lib/crypto';
 import { getApiClient } from '../lib/api';
@@ -34,16 +34,16 @@ async function resolveVaultKeyForId(vaultId: string): Promise<Uint8Array> {
     console.error(`Vault ${vaultId} not found or access denied.`);
     process.exit(1);
   }
-  const { unwrapVaultKey } = await import('@psst/crypto');
+  const { unwrapVaultKey } = await import('@silo/crypto');
   return unwrapVaultKey(fromBase64(row.encryptedVaultKey), masterKey, fromBase64(row.vaultKeyIv));
 }
 
-// ── Resolve vault ID (from option / .psst / global default) ──────────────────
+// ── Resolve vault ID (from option / .silo / global default) ──────────────────
 
 function resolveVaultId(opt?: string, required = true): string {
   const vaultId = opt ?? getDefaultVaultId();
   if (!vaultId && required) {
-    console.error('No vault specified. Use --vault <id> or run `psst env init`.');
+    console.error('No vault specified. Use --vault <id> or run `silo env init`.');
     process.exit(1);
   }
   return vaultId as string;

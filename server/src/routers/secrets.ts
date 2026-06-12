@@ -1,5 +1,5 @@
-import { db, folders, secretTags, secretVersions, secrets, tags, vaultMembers, vaults } from '@psst/db';
-import { SECRET_TYPES } from '@psst/shared';
+import { db, folders, secretTags, secretVersions, secrets, tags, vaultMembers, vaults } from '@silo/db';
+import { SECRET_TYPES } from '@silo/shared';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, ilike, inArray } from 'drizzle-orm';
 import { z } from 'zod/v4';

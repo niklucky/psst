@@ -1,4 +1,4 @@
-import { encrypt, encryptSecret, toBase64 } from '@psst/crypto';
+import { encrypt, encryptSecret, toBase64 } from '@silo/crypto';
 import type {
   CardPayload,
   EnvVarPayload,
@@ -6,7 +6,7 @@ import type {
   LoginPayload,
   NotePayload,
   SecretType,
-} from '@psst/shared';
+} from '@silo/shared';
 import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import type { VaultSession } from '../../context/KeyVaultContext';

@@ -1,5 +1,5 @@
-import { decrypt, fromBase64 } from '@psst/crypto';
-import type { FilePayload } from '@psst/shared';
+import { decrypt, fromBase64 } from '@silo/crypto';
+import type { FilePayload } from '@silo/shared';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { trpc } from '../../../trpc';

@@ -34,7 +34,7 @@ export function generateTotpSecret(): string {
 /** Builds the otpauth:// URL for QR-code enrollment. */
 export function buildOtpauthUrl(secret: string, email: string): string {
   const totp = new TOTP({
-    issuer: 'Psst',
+    issuer: 'Silo',
     label: email,
     secret: Secret.fromBase32(secret),
     algorithm: 'SHA1',

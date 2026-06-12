@@ -1,5 +1,5 @@
 {
-  "extends": "@psst/config/tsconfig.node.json",
+  "extends": "@silo/config/tsconfig.node.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist"

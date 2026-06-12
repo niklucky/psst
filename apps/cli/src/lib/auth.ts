@@ -5,9 +5,9 @@
  */
 
 import fs from 'node:fs';
-import { deriveMasterKey, fromBase64, toBase64 } from '@psst/crypto';
+import { deriveMasterKey, fromBase64, toBase64 } from '@silo/crypto';
 import { readCredentials, writeCredentials, clearCredentials, readConfig, writeConfig } from './config';
-import type { PsstCredentials } from './config';
+import type { SiloCredentials } from './config';
 import { promptPassword } from './prompt';
 
 export { readCredentials, writeCredentials, clearCredentials };
@@ -16,13 +16,13 @@ export { readCredentials, writeCredentials, clearCredentials };
  * Returns the current session, or null if not logged in.
  * Checks both credential file and CI env vars.
  */
-export function getSession(): PsstCredentials | null {
+export function getSession(): SiloCredentials | null {
   // CI/CD: env vars can fully substitute credentials
-  if (process.env['PSST_SESSION_TOKEN'] && process.env['PSST_MASTER_KEY']) {
+  if (process.env['SILO_SESSION_TOKEN'] && process.env['SILO_MASTER_KEY']) {
     // Minimal synthetic session — commands that need vault keys will fail gracefully
     return {
-      sessionToken: process.env['PSST_SESSION_TOKEN'],
-      masterKey: process.env['PSST_MASTER_KEY'],
+      sessionToken: process.env['SILO_SESSION_TOKEN'],
+      masterKey: process.env['SILO_MASTER_KEY'],
       encryptedPrivateKey: '',
       privateKeyIv: '',
       publicKey: '',
@@ -38,10 +38,10 @@ export function getSession(): PsstCredentials | null {
  * Asserts that the user is logged in.
  * Prints an error and exits if not.
  */
-export function requireSession(): PsstCredentials {
+export function requireSession(): SiloCredentials {
   const session = getSession();
   if (!session) {
-    console.error('Not logged in. Run `psst login` first.');
+    console.error('Not logged in. Run `silo login` first.');
     process.exit(1);
   }
   return session;
@@ -50,11 +50,11 @@ export function requireSession(): PsstCredentials {
 /**
  * Returns the master key bytes for the given session.
  *
- * If the session was created with CI env vars (PSST_MASTER_KEY) or normally (file),
+ * If the session was created with CI env vars (SILO_MASTER_KEY) or normally (file),
  * it just decodes from base64. If the stored masterKey is missing (e.g. manually
  * removed), re-derives it from the user's password.
  */
-export async function requireMasterKey(session: PsstCredentials): Promise<Uint8Array> {
+export async function requireMasterKey(session: SiloCredentials): Promise<Uint8Array> {
   if (session.masterKey) {
     return fromBase64(session.masterKey);
   }
@@ -63,7 +63,7 @@ export async function requireMasterKey(session: PsstCredentials): Promise<Uint8A
   console.error('Master key not found in session. Re-derivation required.');
 
   if (!session.email) {
-    console.error('Cannot re-derive: email not in session. Please run `psst login` again.');
+    console.error('Cannot re-derive: email not in session. Please run `silo login` again.');
     process.exit(1);
   }
 
@@ -92,7 +92,7 @@ export async function requireMasterKey(session: PsstCredentials): Promise<Uint8A
 /**
  * Saves a session after successful login.
  */
-export function saveSession(creds: PsstCredentials): void {
+export function saveSession(creds: SiloCredentials): void {
   writeCredentials(creds);
 }
 
@@ -115,16 +115,16 @@ export function updateVaultKeys(
 }
 
 /**
- * Returns the configured default vault ID from .psst (project-local) or global config.
+ * Returns the configured default vault ID from .silo (project-local) or global config.
  */
 export function getDefaultVaultId(): string | undefined {
-  // Check project-local .psst file first
+  // Check project-local .silo file first
   try {
-    const raw = fs.readFileSync('.psst', 'utf8');
+    const raw = fs.readFileSync('.silo', 'utf8');
     const local = JSON.parse(raw) as { vaultId?: string };
     if (local.vaultId) return local.vaultId;
   } catch {
-    // no .psst file — fall through to global config
+    // no .silo file — fall through to global config
   }
   return readConfig().defaultVaultId;
 }

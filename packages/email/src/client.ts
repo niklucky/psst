@@ -42,6 +42,6 @@ function createSender(): Sender {
  * Falls back to logging to the console when RESEND_API_KEY/EMAIL_FROM are unset
  * (local dev, tests) — mirrors the existing `[dev] Invite token for ...` pattern
  * in the organisations router. This is the single choke point every email-sending
- * call goes through, so tests only need to mock `@psst/email` once.
+ * call goes through, so tests only need to mock `@silo/email` once.
  */
 export const sendEmail: Sender = createSender();

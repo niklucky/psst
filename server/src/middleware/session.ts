@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { db } from '@psst/db';
-import { sessions } from '@psst/db';
+import { db } from '@silo/db';
+import { sessions } from '@silo/db';
 import { eq, gt } from 'drizzle-orm';
 import type { Context as HonoContext, MiddlewareHandler } from 'hono';
 import type { Context } from '../trpc';

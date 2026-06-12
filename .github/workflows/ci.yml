@@ -98,14 +98,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build web app
-        run: pnpm --filter @psst/web build
+        run: pnpm --filter @silo/web build
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
 
       - name: Run E2E tests
-        run: pnpm --filter @psst/web test:e2e
+        run: pnpm --filter @silo/web test:e2e
         env:
           CI: true
 
@@ -145,7 +145,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/psst
+          images: ghcr.io/${{ github.repository_owner }}/silo
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}

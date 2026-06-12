@@ -6,7 +6,7 @@ import { setSessionToken } from '../trpc';
  * material — so it's safe to persist across reloads. The master key (and
  * everything derived from it) stays in memory only; see `lock` / `lockedToken`.
  */
-const TOKEN_STORAGE_KEY = 'psst:session_token';
+const TOKEN_STORAGE_KEY = 'silo:session_token';
 
 function readPersistedToken(): string | null {
   try {

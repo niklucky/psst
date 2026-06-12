@@ -19,7 +19,7 @@ export default defineConfig({
   ],
   webServer: {
     // Serves the built dist/ directory; build the app before running e2e
-    command: 'pnpm --filter @psst/web preview',
+    command: 'pnpm --filter @silo/web preview',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

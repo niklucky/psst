@@ -1,4 +1,4 @@
-import { db, userCredentials, users } from '@psst/db';
+import { db, userCredentials, users } from '@silo/db';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod/v4';

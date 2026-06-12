@@ -1,5 +1,5 @@
 {
-  "name": "@psst/crypto",
+  "name": "@silo/crypto",
   "version": "0.0.0",
   "private": true,
   "description": "Zero-knowledge cryptography primitives",
@@ -11,7 +11,7 @@
     "lint": "echo \"No lint yet\""
   },
   "devDependencies": {
-    "@psst/config": "workspace:*",
+    "@silo/config": "workspace:*",
     "typescript": "^5.8.3",
     "vitest": "^4.1.7"
   },

@@ -47,7 +47,7 @@ export function VerifyEmailPage() {
           </>
         )}
         <Link to="/" className="inline-block text-sm text-indigo-600 hover:underline">
-          Go to Psst
+          Go to Silo
         </Link>
       </div>
     </div>

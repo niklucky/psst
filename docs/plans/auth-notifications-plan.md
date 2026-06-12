@@ -7,7 +7,7 @@ time**. Each stage is marked complete only after the user has hand-tested it.
 
 | Stage | Feature | Status |
 |-------|---------|--------|
-| 1 | Email service (`@psst/email`, Resend) | ✅ done |
+| 1 | Email service (`@silo/email`, Resend) | ✅ done |
 | 2 | Welcome email + email verification | ✅ done |
 | 3 | Step-up email verification (new device/location/stale session) | ✅ done |
 | 4 | 2FA (TOTP + backup codes) | ✅ done |
@@ -18,7 +18,7 @@ time**. Each stage is marked complete only after the user has hand-tested it.
 
 ## Context
 
-`psst` is an E2EE secrets manager (Bitwarden-style): the **master key** is derived
+`silo` is an E2EE secrets manager (Bitwarden-style): the **master key** is derived
 client-side as `argon2id(password, masterSalt)` and is the root that unwraps the
 user's vault key, their X25519 private key, and (transitively, since
 `vaultMembers.encryptedVaultKey` is wrapped under the same master key) every vault
@@ -53,18 +53,18 @@ previous one's infrastructure:
 
 ---
 
-## Stage 1 — Email service (`@psst/email`)
+## Stage 1 — Email service (`@silo/email`)
 
 **Goal:** a minimal, typed wrapper around Resend that the rest of the stages send
 through, following the monorepo's existing "no queue, send inline" philosophy
 (`docs/plans/initial-implemetation-plan.md:13`).
 
-- New package `packages/email` (`@psst/email`), mirroring `@psst/crypto`'s shape:
+- New package `packages/email` (`@silo/email`), mirroring `@silo/crypto`'s shape:
   a thin client (`resend` npm package) plus plain template functions returning
   `{ subject, html, text }`. Skip `react-email` for now — templates are simple
   (verification code, security alert, invite) and the project favors minimal deps.
 - Env additions in `server/src/env.ts`: `RESEND_API_KEY`, `EMAIL_FROM` (e.g.
-  `Psst <noreply@yourdomain>`), `APP_URL` (for links in emails).
+  `Silo <noreply@yourdomain>`), `APP_URL` (for links in emails).
 - A single `sendEmail({ to, subject, html, text })` choke point so later stages
   (and tests) can mock one thing. In `NODE_ENV=test`/missing API key, log to
   console instead of calling Resend — mirrors the existing
@@ -198,7 +198,7 @@ high-entropy recovery code that wraps the master key directly.
 unwrapping it hands back the *exact* master key the user already has — which then
 transparently unwraps the personal vault key, the private key, and every
 `vaultMembers.encryptedVaultKey` row, with zero per-vault iteration. This mirrors
-the existing `wrapVaultKey`/`unwrapVaultKey` primitives in `@psst/crypto`
+the existing `wrapVaultKey`/`unwrapVaultKey` primitives in `@silo/crypto`
 (`packages/crypto/src/vault.ts`) — same shape, new keypair (recovery-code-derived
 instead of master-key-derived).
 

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@psst/db', () => ({
+vi.mock('@silo/db', () => ({
   db: { select: vi.fn() },
   sessions: {},
 }));
 
-import { db } from '@psst/db';
+import { db } from '@silo/db';
 import { sessionMiddleware } from '../middleware/session';
 
 /** Builds a chainable drizzle-style query mock that resolves to `result`. */

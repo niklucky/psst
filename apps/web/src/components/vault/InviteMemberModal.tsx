@@ -3,7 +3,7 @@ import {
   fromBase64,
   toBase64,
   unwrapPrivateKey,
-} from '@psst/crypto';
+} from '@silo/crypto';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useKeyVault } from '../../context/KeyVaultContext';

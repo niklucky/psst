@@ -1,4 +1,4 @@
-import type { AppRouter } from '@psst/api';
+import type { AppRouter } from '@silo/api';
 import { createTRPCClient, httpBatchLink, type TRPCClient } from '@trpc/client';
 import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query';
 

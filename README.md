@@ -1,4 +1,4 @@
-# psst
+# silo
 
 A platform for managing secrets, organisations, and vaults. End-to-end encrypted — secrets are encrypted client-side before reaching the server.
 
@@ -23,11 +23,11 @@ This starts:
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| PostgreSQL | `localhost:5432` | database `psst`, user `postgres`, password `dev` |
+| PostgreSQL | `localhost:5432` | database `silo`, user `postgres`, password `dev` |
 | MinIO S3 API | `localhost:9000` | access key `minioadmin` / `minioadmin` |
 | MinIO console | `localhost:9001` | web UI for browsing buckets |
 
-The `createbuckets` init container creates the `psst-files` bucket automatically.
+The `createbuckets` init container creates the `silo-files` bucket automatically.
 
 ### 2. Install dependencies
 
@@ -68,7 +68,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: dev
-      POSTGRES_DB: psst
+      POSTGRES_DB: silo
     ports:
       - "5432:5432"
     volumes:
@@ -99,8 +99,8 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/psst-files &&
-      echo 'Bucket psst-files ready.'
+      mc mb --ignore-existing local/silo-files &&
+      echo 'Bucket silo-files ready.'
       "
 
 volumes:
@@ -143,11 +143,11 @@ apps/
   extension/    Browser extension (WXT)
   cli/          Node CLI (tsup)
 packages/
-  crypto/       End-to-end encryption primitives (@psst/crypto)
-  db/           Drizzle schema + client (@psst/db)
-  api/          tRPC router types (@psst/api)
-  ui/           Shared React components (@psst/ui)
-  shared/       Shared utilities (@psst/shared)
+  crypto/       End-to-end encryption primitives (@silo/crypto)
+  db/           Drizzle schema + client (@silo/db)
+  api/          tRPC router types (@silo/api)
+  ui/           Shared React components (@silo/ui)
+  shared/       Shared utilities (@silo/shared)
   config/       Shared tsconfig / eslint / prettier
 server/         Hono + tRPC API server
 ```

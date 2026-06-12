@@ -1,4 +1,4 @@
-import type { NotePayload } from '@psst/shared';
+import type { NotePayload } from '@silo/shared';
 import Markdown from 'react-markdown';
 import { useForm } from 'react-hook-form';
 import { EditButtons, FormField, FormTextarea } from './LoginDetail';

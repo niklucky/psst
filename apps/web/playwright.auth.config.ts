@@ -9,10 +9,10 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * One-time local setup:
  *   docker compose -f ../../compose.local.yml up -d
- *   pnpm --filter @psst/db db:migrate
+ *   pnpm --filter @silo/db db:migrate
  *
  * Run:
- *   pnpm --filter @psst/web test:e2e:auth
+ *   pnpm --filter @silo/web test:e2e:auth
  */
 export default defineConfig({
   testDir: './tests/auth',

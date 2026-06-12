@@ -63,7 +63,7 @@ describe('deriveMasterKey', () => {
 describe('encrypt / decrypt', () => {
   it('round-trips correctly', () => {
     const key = generateKey();
-    const plaintext = new TextEncoder().encode('Hello, psst!');
+    const plaintext = new TextEncoder().encode('Hello, silo!');
     const { ciphertext, iv } = encrypt(plaintext, key);
     const recovered = decrypt(ciphertext, key, iv);
     expect(recovered).toEqual(plaintext);

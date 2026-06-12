@@ -10,7 +10,7 @@ import { env } from './env';
  */
 const appUrl = new URL(env.APP_URL);
 
-export const rpName = 'Psst';
+export const rpName = 'Silo';
 export const rpID = appUrl.hostname;
 export const origin = appUrl.origin;
 

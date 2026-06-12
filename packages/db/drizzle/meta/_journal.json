@@ -5,71 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1779581708528,
-      "tag": "0000_hesitant_vapor",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1779581974334,
-      "tag": "0001_jazzy_tyger_tiger",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1779582248566,
-      "tag": "0002_groovy_avengers",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1779585642348,
-      "tag": "0003_orange_madelyne_pryor",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1748130000000,
-      "tag": "0004_vault_members_invite",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1781117963637,
-      "tag": "0005_demonic_the_fallen",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1781119282675,
-      "tag": "0006_big_jasper_sitwell",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1781187401143,
-      "tag": "0007_nifty_runaways",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1781195121472,
-      "tag": "0008_bizarre_martin_li",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1781201453669,
-      "tag": "0009_right_jasper_sitwell",
+      "when": 1781239395742,
+      "tag": "0000_romantic_donald_blake",
       "breakpoints": true
     }
   ]

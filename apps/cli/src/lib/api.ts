@@ -2,17 +2,17 @@
  * CLI tRPC client.
  *
  * Creates a vanilla (non-React) tRPC client that reads the session token
- * from the credentials file (or CI env var PSST_SESSION_TOKEN).
+ * from the credentials file (or CI env var SILO_SESSION_TOKEN).
  */
 
-import type { AppRouter } from '@psst/api';
+import type { AppRouter } from '@silo/api';
 import { createTRPCClient, httpBatchLink, type TRPCClient } from '@trpc/client';
 import { readCredentials, getServerUrl } from './config';
 
 function getSessionToken(): string | null {
   // CI/CD: env var takes precedence
-  if (process.env['PSST_SESSION_TOKEN']) {
-    return process.env['PSST_SESSION_TOKEN'];
+  if (process.env['SILO_SESSION_TOKEN']) {
+    return process.env['SILO_SESSION_TOKEN'];
   }
   return readCredentials()?.sessionToken ?? null;
 }

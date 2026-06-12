@@ -9,5 +9,5 @@ export default defineConfig({
   },
   clean: true,
   // Bundle all workspace packages (they ship as .ts source, not pre-built)
-  noExternal: ['@psst/crypto', '@psst/shared', '@psst/api'],
+  noExternal: ['@silo/crypto', '@silo/shared', '@silo/api'],
 });

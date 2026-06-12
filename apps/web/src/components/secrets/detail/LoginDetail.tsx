@@ -1,4 +1,4 @@
-import type { LoginPayload } from '@psst/shared';
+import type { LoginPayload } from '@silo/shared';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { CopyButton } from '../CopyButton';

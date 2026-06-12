@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { fromBase64, unwrapVaultKey } from '@psst/crypto';
+import { fromBase64, unwrapVaultKey } from '@silo/crypto';
 import { trpc } from '../../trpc';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { useIdleLock } from '../../hooks/useIdleLock';
@@ -35,7 +35,7 @@ export function AppLayout() {
   // ── Idle lock ─────────────────────────────────────────────────────────────
   const idleTimeoutMs = (() => {
     try {
-      const stored = localStorage.getItem('psst:idle_timeout_ms');
+      const stored = localStorage.getItem('silo:idle_timeout_ms');
       return stored ? parseInt(stored, 10) : DEFAULT_IDLE_MS;
     } catch {
       return DEFAULT_IDLE_MS;
@@ -128,7 +128,7 @@ export function AppLayout() {
       >
         {/* Logo */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-gray-100">
-          <span className="text-lg font-bold text-gray-900">🔐 Psst</span>
+          <span className="text-lg font-bold text-gray-900">🔐 Silo</span>
           <button
             className="md:hidden text-gray-400 hover:text-gray-600"
             onClick={() => setSidebarOpen(false)}
@@ -230,7 +230,7 @@ export function AppLayout() {
           >
             ☰
           </button>
-          <span className="text-sm font-bold text-gray-900">🔐 Psst</span>
+          <span className="text-sm font-bold text-gray-900">🔐 Silo</span>
           <div className="flex-1" />
           <button
             onClick={() => setShowCommandPalette(true)}

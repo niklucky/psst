@@ -4,7 +4,7 @@ import {
   toBase64,
   unwrapPrivateKey,
   wrapVaultKey,
-} from '@psst/crypto';
+} from '@silo/crypto';
 import { useState } from 'react';
 import { useKeyVault } from '../../context/KeyVaultContext';
 import { trpc } from '../../trpc';
